@@ -1,0 +1,16 @@
+# Copyrighted source PDFs. This repository is public; papers are not redistributable.
+papers/
+lit_survey.pdf
+vhj.pdf
+
+# Large media
+abstract_video/
+*.m4a
+*.mp4
+
+# Local scratch
+node_modules/
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db
