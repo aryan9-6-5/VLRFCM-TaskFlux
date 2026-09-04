@@ -1,0 +1,902 @@
+%% ============================================================
+%%  Adaptive Vision-Language-Action Systems for Task Changeover
+%%  in Collaborative Manufacturing: A Review
+%%
+%%  Compile:  pdflatex main  ->  bibtex main (not needed, bib is
+%%            embedded)  ->  pdflatex main  ->  pdflatex main
+%% ============================================================
+
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+
+\usepackage{cite}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{url}
+\usepackage[hidelinks]{hyperref}
+\usepackage{textcomp}
+
+% Column type for wrapped, top-aligned table cells
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+
+\begin{document}
+
+\title{Adaptive Vision-Language-Action Systems for Task\\
+Changeover in Collaborative Manufacturing: A Review\\
+and a Proposed Architecture}
+
+\author{\IEEEauthorblockN{Batch 03}
+\IEEEauthorblockA{\textit{Department of Computer Science and Engineering (AI and ML)}\\
+\textit{Vardhaman College of Engineering}\\
+Hyderabad, India}
+\and
+\IEEEauthorblockN{Dr.~Ramachandro Majji}
+\IEEEauthorblockA{\textit{Associate Professor}\\
+\textit{Department of Computer Science and Engineering (AI and ML)}\\
+\textit{Vardhaman College of Engineering}\\
+Hyderabad, India}
+}
+
+\maketitle
+
+% ============================================================
+\begin{abstract}
+Vision-language-action (VLA) models let a robot map a camera image and a
+natural language instruction directly to motor commands. Recent open
+models such as OpenVLA reach 70.6\% mean success across 29 manipulation
+tasks while remaining fine-tunable on a single GPU. All of this work
+shares one assumption: the instruction holds constant for the length of
+the episode. On a high-mix, low-volume assembly line that assumption
+breaks several times a shift, because the operator changes the product
+variant while the robot is partway through building the previous one.
+
+This paper reviews vision-language robotics for collaborative
+manufacturing through the specific lens of task change. We group twenty
+representative works into generalist VLA policies, language grounding
+and ambiguity resolution, LLM-based planning and replanning, and
+parameter-efficient continual adaptation, and we show that each group
+leaves the same thing untouched. Ambiguity work resolves which object an
+instruction refers to while holding the goal fixed. Replanning work
+reacts to execution failure while holding the goal fixed. Nothing
+addresses the case where the goal itself is withdrawn and replaced
+mid-episode.
+
+We then propose TaskFlux, an adaptation layer that sits above an
+existing VLA rather than replacing it. Its four components are a
+changeover intent classifier, a partial-assembly state reconciler that
+decides which completed steps to keep, undo or discard, a feasibility
+gate that can refuse a request and explain why, and a LoRA-based
+specialised policy head whose adapters merge into the base model only
+after passing a retention check. Because no benchmark exists for
+mid-episode task change, we also define an evaluation protocol with five
+metrics.
+\end{abstract}
+
+\begin{IEEEkeywords}
+vision-language-action models, human-robot collaboration, task
+replanning, high-mix low-volume manufacturing, parameter-efficient
+adaptation
+\end{IEEEkeywords}
+
+% ============================================================
+\section{Introduction}
+
+High-mix, low-volume manufacturing is the awkward middle of production.
+Volumes are too low to justify a dedicated line and too high to do by
+hand. Medical device assembly, custom electronics and aerospace
+subassembly all live there, and in all three the product variant changes
+often, sometimes several times in one shift.
+
+Industrial robots handle this badly. A variant switch means a stop, a
+reprogram, a revalidation and a restart, and the cost of that downtime is
+what keeps a lot of this work manual. Collaborative robots were supposed
+to help. They do help with safety and with physical proximity to the
+operator, but the reprogramming problem is untouched. A cobot that needs
+a technician with a teach pendant every time the part changes is not
+flexible in any way that matters to a plant manager.
+
+Vision-language-action models looked like the answer. Train one policy on
+enough demonstrations, condition it on a natural language instruction,
+and it should generalise to new objects and new phrasings without
+retraining. RT-2 showed the idea worked \cite{rt2}. OpenVLA showed it
+could be open, reproducible, and cheap enough to adapt on a single A100
+in ten to fifteen hours using LoRA at rank 32, which trains 1.4\% of the
+model's weights and still matches full fine-tuning \cite{openvla}.
+
+But look at how these systems are actually evaluated. An episode begins,
+an instruction is provided, the policy runs to completion or failure, the
+episode ends. The instruction is an input, supplied once. There is no
+path in the architecture for it to change while the robot is working.
+
+That is exactly what happens in a real changeover. And the moment it
+happens, a second problem appears that nobody has written about: the
+workspace is no longer empty. Parts have already been placed. Screws are
+already torqued. A plan generated fresh from the current camera frame
+will not account for any of that, and executing it will produce either a
+collision or a hybrid assembly that matches neither specification.
+
+This paper does two things. First it reviews the field with that specific
+failure in mind, to establish that the gap is real rather than assumed.
+Second it proposes an architecture for closing it, along with the
+evaluation protocol that would be needed to test any such system.
+
+\subsection{Contributions}
+
+\begin{enumerate}
+\item A structured review of twenty works across four themes, each
+assessed against a single question: what happens if the task changes
+mid-episode.
+\item A three-way distinction between referential ambiguity, execution
+failure and task changeover, which have been conflated in the literature
+and which require different mechanisms.
+\item TaskFlux, an adaptation layer over an existing VLA, whose central
+component is a partial-assembly state reconciler.
+\item A five-metric evaluation protocol for mid-episode task change,
+since no current benchmark measures it.
+\end{enumerate}
+
+Section~\ref{sec:background} covers background. Section~\ref{sec:method}
+states the review method. Section~\ref{sec:review} is the thematic
+review. Section~\ref{sec:gap} is the gap analysis.
+Section~\ref{sec:arch} presents TaskFlux. Section~\ref{sec:eval} gives
+the evaluation protocol. Section~\ref{sec:open} lists open problems.
+
+% ============================================================
+\section{Background}
+\label{sec:background}
+
+\subsection{From vision-language models to vision-language-action models}
+
+CLIP established that contrastive pretraining on image-text pairs
+produces representations that transfer to tasks the model was never
+trained on \cite{clip}. Robotics picked this up quickly. CLIPort fused
+CLIP semantics with a spatial stream for language-conditioned pick and
+place \cite{cliport}, and PerAct extended the idea into voxel space
+\cite{peract}.
+
+The step to a VLA came when RT-2 treated actions as text \cite{rt2}.
+Discretise each dimension of the robot action into bins, assign each bin
+a token, and the whole control problem becomes next-token prediction over
+a vocabulary that happens to include motor commands. That means every
+technique developed for training large language models applies directly
+to training robot policies.
+
+OpenVLA is the open realisation of that idea and the backbone this
+project uses \cite{openvla}. It is a 7B model built on Prismatic-7B,
+which pairs Llama~2 with a two-part visual encoder that concatenates
+SigLIP and DINOv2 features. The authors chose that pairing deliberately:
+SigLIP carries high-level semantics, DINOv2 carries low-level spatial
+detail, and spatial detail is what a manipulation policy needs. Each of
+the seven action dimensions is discretised into 256 bins set by the 1st
+and 99th quantiles of the training distribution, and those 256 tokens
+overwrite the 256 least-used entries in the Llama tokenizer.
+
+Trained on 970k episodes from Open X-Embodiment \cite{openx}, it reaches
+70.6\% $\pm$ 3.2\% mean success across 29 tasks, which is 16.5 absolute
+points above RT-2-X despite having seven times fewer parameters.
+
+\subsection{What the OpenVLA authors say is missing}
+
+Their own limitations section is worth taking seriously, because it
+constrains what any system built on top can do.
+
+The model sees one image. No proprioception, no wrist camera, no
+observation history. Inference throughput is too low for high-frequency
+control; the authors note it cannot support something like ALOHA at
+50~Hz. And on narrow dexterous tasks, Diffusion Policy still produces
+smoother trajectories, which the authors attribute to action chunking and
+temporal smoothing that OpenVLA does not do.
+
+For our purposes the throughput limit is the binding one. A changeover
+that takes a few seconds to reason about is acceptable when changeovers
+happen a handful of times per shift. It would not be acceptable for
+anything reactive.
+
+\subsection{Parameter-efficient adaptation}
+
+LoRA freezes the base weights and learns a low-rank update on each linear
+layer \cite{lora}. On OpenVLA the numbers are unusually favourable. Rank
+32 gives 68.2\% against 69.7\% for full fine-tuning, trains 97.6M
+parameters instead of 7.19B, and fits in 59.7~GB at batch size 16 where
+full fine-tuning needs 163.3~GB sharded across two GPUs. Rank had almost
+no effect on the result, so 32 is a reasonable default rather than a
+tuned choice.
+
+That is what makes a per-variant adapter practical. It is also what makes
+the merge-back question interesting, because if adapters are cheap you
+will accumulate a lot of them and you need a policy for what to do with
+the pile.
+
+% ============================================================
+\section{Review Method}
+\label{sec:method}
+
+We started from six sources compiled during the project's initial survey
+and expanded outward along citation edges from two anchors: OpenVLA as
+the technical backbone \cite{openvla} and the survey of Fan et al. in
+Frontiers of Engineering Management as the domain reference
+\cite{fansurvey}. That survey itself screened Web of Science, Scopus and
+IEEE Xplore for combinations of ``human-robot'' and ``vision language''
+over 2020 to 2024 and retained 109 papers, so it provides reasonable
+coverage of the manufacturing side without us repeating the search.
+
+Inclusion required a paper to do at least one of the following: propose
+or evaluate a policy that consumes both visual and language input,
+propose a planning or replanning mechanism driven by language, or propose
+an adaptation method we intend to use. Twenty works met that bar and
+appear in Table~\ref{tab:review}.
+
+\subsection{One source excluded}
+
+One source was excluded after screening. A 2025 article in the Journal of
+Computer Science and Software Applications carries the title
+``Vision-Language Models for Human-Robot Collaboration: Real-Time Task
+Understanding and Execution'' over an abstract and keyword list that
+describe CNN-LSTM stock price prediction on the CSI 300 index. The body
+then discusses robots. The mismatch is present in the published version
+of record, which indicates the manuscript was never reviewed.
+
+Its reported figures are round numbers with no variance, from twenty
+trials per condition, and we do not treat them as evidence. We mention
+the exclusion rather than quietly dropping the paper, because venues of
+this kind now appear routinely in search results for this topic and other
+groups will encounter the same article.
+
+% ============================================================
+\section{Thematic Review}
+\label{sec:review}
+
+\subsection{Generalist VLA policies}
+
+RT-1 showed one transformer could absorb hundreds of manipulation tasks
+\cite{rt1}. RT-2 added web-scale semantic knowledge by co-fine-tuning a
+pretrained VLM on robot trajectories \cite{rt2}. Open X-Embodiment
+aggregated over sixty datasets across twenty-two embodiments and
+demonstrated positive transfer between them \cite{openx}. OpenVLA made
+the recipe open \cite{openvla}. Octo showed the same territory can be
+reached with a diffusion action head and modular input tokenisers
+\cite{octo}.
+
+QUAR-VLA is useful as a control on the embodiment question. Ding et al.
+built QUART for quadrupeds over an 11-dimensional command space and
+trained on QUARD, 259k simulated plus 3k real episodes \cite{quarvla}.
+The gap between QUART and the CLIP, R3M and VC-1 baselines widens as
+tasks get harder, and on the crawl and unload tasks the baselines score
+exactly zero while QUART reaches 0.32 and 0.12. The formulation clearly
+transfers off arms.
+
+What all six share is this: the instruction is bound once, at the start
+of the episode, and the architecture provides no way to rebind it.
+
+\subsection{Language grounding and ambiguity in HRC}
+
+Fan and Zheng \cite{fanzheng} is the closest published work to this
+project and should be the primary baseline. They target under-specified
+operator instructions in collaborative assembly, the ``hand me that one''
+case, and use vision-language guidance to pick the intended referent.
+
+It is worth being precise about what that solves and what it does not.
+The operator and the robot already agree on what is being built. The
+uncertainty is over which physical object satisfies a step of an agreed
+plan. Resolve it and execution continues along the same plan. This is
+genuinely useful and genuinely different from what happens when the
+operator says ``we are building the B variant now'', where the plan
+itself is no longer valid.
+
+OWG approaches grounding from the grasp side. Tziafas and Kasaei prompt
+GPT-4V with visual markers over segmented objects and candidate grasps,
+in three zero-shot stages: referring segmentation, grounded grasp
+planning, then grasp ranking by contact reasoning \cite{owg}. On real
+hardware with two UR5e arms they reach 83.3\% on isolated unseen objects
+and 50.0\% in clutter, beating both a supervised baseline and an LLM
+planner baseline in every cell.
+
+Their limitations section carries a lesson we adopted. Being modular, OWG
+``suffers from error cascading effects introduced by the segmentor and
+grasp synthesis models''. A segmentation error becomes a grasp error
+becomes a task failure, and there is no path to recover. That is a direct
+argument for keeping the low-level policy monolithic and putting the
+language reasoning above it rather than in series with perception.
+
+\subsection{LLM planning and replanning}
+
+SayCan pairs an LLM's estimate of what a skill contributes toward a goal
+with an affordance model's estimate of whether that skill will succeed
+here and now, and multiplies them \cite{saycan}. The feasibility gate is
+the part we generalise: our safety module does the same job but checks
+process constraints, not just affordances.
+
+Code as Policies has the LLM emit executable code that calls perception
+and control APIs \cite{cap}, which makes the plan inspectable and
+verifiable instead of free text. That is a property we want for a plan
+that a human operator may need to approve.
+
+Inner Monologue is the canonical replanning system \cite{innermono}.
+Success detectors, scene descriptors and human feedback are all injected
+back into the LLM's context as text, and the plan is revised when reality
+diverges from prediction.
+
+Read those three together and the pattern is clear. The goal is a
+constant. Planning generates a route to it, replanning generates a new
+route when the old one fails, and no mechanism exists for the goal to be
+replaced. That is the structural gap.
+
+\subsection{Parameter-efficient adaptation and continual learning}
+
+LoRA \cite{lora} and QLoRA \cite{qlora} make per-variant adaptation cheap
+enough to do on-premise. Model soups \cite{soups} and task arithmetic
+\cite{taskarith} show that merging in weight space works and can even be
+reversed, which matters if an adapter turns out to have hurt something.
+Elastic weight consolidation gives the theoretical account of why
+unconstrained sequential fine-tuning destroys earlier competence
+\cite{ewc}.
+
+None of this has been assembled into a loop that runs on a factory floor
+with a validation gate in the middle. That assembly is part of what we
+are proposing.
+
+\subsection{The manufacturing view}
+
+The survey of Fan et al. \cite{fansurvey} is where the domain
+requirements are stated most clearly, and two of its future-work sections
+read like a specification for this project.
+
+Section 6.2 says VLM-based task planning is focused on static scenes and
+that ``real-time task planning in dynamic scenes remains an unresolved
+issue''.
+
+Section 6.6, titled ``Dynamic task adaptation and unsupervised
+evaluation'', says current methods ``always rely on an assumption of an
+ideal training environment'', that real deployment ``necessitates human
+operators for continuous monitoring and intervention'', and that this
+``significantly hinders real applications''. It then argues robots ``must
+evolve to autonomously adapt to dynamic environments and tasks'' and
+calls for ``a continuous learning mechanism'' allowing them ``to adapt
+and improve their performance autonomously over time based on new
+experiences and feedback''.
+
+That is our problem statement, written by someone else, in a survey of
+109 papers, with no solution attached.
+
+% ============================================================
+% Wide comparative table
+% ============================================================
+\begin{table*}[!t]
+\caption{Comparative review of vision-language robotics for
+collaborative manufacturing, assessed against mid-episode task change}
+\label{tab:review}
+\centering
+\footnotesize
+\renewcommand{\arraystretch}{1.15}
+% Widths sum to 15.35cm + 5 inter-column gaps (2\tabcolsep each,
+% ~2.1cm total) = ~17.45cm, inside the 18.1cm IEEE double-column
+% textwidth. Adjust these six numbers together if you edit the table.
+\begin{tabular}{@{}L{0.45cm} L{2.4cm} L{0.75cm} L{3.85cm} L{3.85cm} L{4.05cm}@{}}
+\toprule
+\textbf{\#} & \textbf{Work} & \textbf{Year} & \textbf{Approach} &
+\textbf{Reported result} & \textbf{Gap w.r.t. task changeover} \\
+\midrule
+\multicolumn{6}{@{}l@{}}{\textit{A. Generalist vision-language-action policies}}\\
+\midrule
+1 & OpenVLA \cite{openvla} & 2024 &
+7B VLA. Llama~2 with fused SigLIP and DINOv2 encoder; actions
+discretised into 256 bins over unused tokens &
+70.6\% $\pm$ 3.2\% over 29 tasks; 16.5 pts above RT-2-X at 7$\times$
+fewer parameters; LoRA $r{=}32$ gives 68.2\% training 1.4\% of weights &
+Instruction fixed for the episode. Single image, no proprioception, no
+history. Control rate too low for reactive use \\
+2 & QUAR-VLA \cite{quarvla} & 2024 &
+VLA for quadruped locomotion and manipulation over an 11-dimensional
+command space &
+QUART 0.66 on seen tasks vs 0.44 CLIP, 0.46 VC-1; baselines score 0.0 on
+crawl and unload where QUART reaches 0.32 and 0.12 &
+Task set enumerated in advance. No mechanism for a task that changes
+during execution \\
+3 & RT-2 \cite{rt2} & 2023 &
+Web-pretrained VLM co-fine-tuned on robot trajectories, actions emitted
+as text tokens &
+Strong emergent semantic generalisation reported &
+Closed weights. Fixed-task assumption. No replanning layer \\
+4 & RT-1 \cite{rt1} & 2022 &
+Transformer policy over image and instruction tokens; 130k
+demonstrations, 700 tasks &
+High multi-task success on a mobile manipulator &
+Task identity supplied at episode start and never revised \\
+5 & Open X-Embodiment \cite{openx} & 2024 &
+Cross-embodiment dataset aggregation and joint policy training &
+Positive transfer across 22 embodiments &
+Dataset contribution. No task adaptation mechanism \\
+6 & Octo \cite{octo} & 2024 &
+Transformer policy with diffusion action head and modular tokenisers &
+Competitive with generalist baselines; flexible fine-tuning &
+Same fixed-goal assumption \\
+\midrule
+\multicolumn{6}{@{}l@{}}{\textit{B. Language grounding and ambiguity in human-robot collaboration}}\\
+\midrule
+7 & Fan and Zheng \cite{fanzheng} & 2024 &
+Vision-language guided action planning for ambiguity mitigation in
+collaborative assembly &
+High task success on ambiguous referring instructions &
+Resolves \emph{which object} an instruction denotes. The goal state
+itself is fixed throughout. Closest prior work and the correct baseline \\
+8 & OWG \cite{owg} & 2024 &
+GPT-4V with Mask-RCNN and GR-ConvNet; referring segmentation, grounded
+grasp planning, contact-reasoning grasp ranking, all zero-shot &
+Sim seen/unseen isolated 78.0/82.0, cluttered 62.0/66.0; real isolated
+83.3/66.6, cluttered 50.0/50.0 &
+Single-object grasping, not multi-step assembly. Authors flag error
+cascading between modules \\
+9 & CLIPort \cite{cliport} & 2021 &
+Two-stream policy fusing CLIP semantics with a spatial Transporter
+stream &
+Strong sample efficiency on language-conditioned pick and place &
+Tabletop rearrangement only, one instruction per episode \\
+10 & PerAct \cite{peract} & 2022 &
+Perceiver-based voxel policy for language-conditioned manipulation &
+Multi-task success from few demonstrations &
+No plan-level reasoning, no adaptation to a changed goal \\
+11 & CLIP \cite{clip} & 2021 &
+Contrastive image-text pretraining on 400M pairs &
+Strong zero-shot transfer &
+Not a robotics model. Provides similarity, not action \\
+\midrule
+\multicolumn{6}{@{}l@{}}{\textit{C. LLM task planning and replanning}}\\
+\midrule
+12 & SayCan \cite{saycan} & 2022 &
+LLM scores candidate skills, affordance model scores feasibility, product
+selects the next skill &
+Long-horizon instruction following on a real mobile manipulator &
+Skill library fixed. Plan generated once from a goal that never changes \\
+13 & Code as Policies \cite{cap} & 2023 &
+LLM writes executable policy code calling perception and control APIs &
+Generalises to novel instructions through code composition &
+Generates a program for a stated goal. No notion of revising it
+mid-execution \\
+14 & Inner Monologue \cite{innermono} & 2022 &
+Closed-loop replanning from textual feedback: success detectors, scene
+descriptors, human input &
+Improved long-horizon success from feedback grounding &
+Replans when execution diverges from prediction. The goal is never
+withdrawn and replaced \\
+15 & Fan et al. survey \cite{fansurvey} & 2024 &
+Systematic survey; Web of Science, Scopus, IEEE Xplore; 2020--2024 &
+109 papers; taxonomy across planning, navigation, manipulation, skill
+transfer &
+Survey only. Section 6.6 names this gap and calls for a continuous
+learning mechanism, but builds nothing \\
+\midrule
+\multicolumn{6}{@{}l@{}}{\textit{D. Parameter-efficient adaptation and continual learning}}\\
+\midrule
+16 & LoRA \cite{lora} & 2022 &
+Low-rank update matrices injected into frozen linear layers &
+Matches full fine-tuning at a fraction of trainable parameters &
+Designed for offline adaptation to a static target task \\
+17 & QLoRA \cite{qlora} & 2023 &
+LoRA over a 4-bit quantised base model &
+Large memory reduction at near-parity quality &
+Same offline assumption \\
+18 & Model soups \cite{soups} & 2022 &
+Averaging weights of independently fine-tuned models &
+Averaging can beat the best single member &
+Merging is unconditional. No gating on retention or safety \\
+19 & Task arithmetic \cite{taskarith} & 2023 &
+Add and subtract task vectors in weight space to edit behaviour &
+Behaviour can be composed and removed arithmetically &
+Not validated in a control or safety-critical setting \\
+20 & EWC \cite{ewc} & 2017 &
+Penalise change to parameters important for earlier tasks &
+Reduces catastrophic forgetting &
+Predates VLAs. Never tested on a manipulation policy \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+% ============================================================
+\section{Gap Analysis}
+\label{sec:gap}
+
+\subsection{Three problems that get conflated}
+
+The literature contains two named problems and one unnamed one, set out
+in Table~\ref{tab:three}.
+
+\begin{table}[!t]
+\caption{Three problems that are routinely conflated}
+\label{tab:three}
+\centering
+\footnotesize
+\renewcommand{\arraystretch}{1.25}
+\begin{tabular}{@{}L{2.0cm} L{2.6cm} L{1.5cm} L{1.3cm}@{}}
+\toprule
+\textbf{Problem} & \textbf{Trigger} & \textbf{Goal state} &
+\textbf{Addressed by} \\
+\midrule
+Referential ambiguity & Referent is unclear & Fixed &
+\cite{fanzheng} \\
+Execution failure & Execution diverged from prediction & Fixed &
+\cite{innermono} \\
+Task changeover & Operator changed the requirement & Replaced
+mid-episode & Nothing \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The three need different machinery. Ambiguity needs better grounding.
+Failure needs monitoring and recovery. Changeover needs goal-state
+comparison and a way to deal with work already done.
+
+\subsection{The partial-state problem}
+
+This is the part that has no precedent at all.
+
+Suppose a plan has $n$ steps and the goal is replaced at step $k$. The
+naive response is to regenerate a plan from the new goal and the current
+image. That fails, because the current image shows a partially assembled
+product and the planner will either treat the placed parts as obstacles
+to avoid or ignore them entirely. Either way the output is wrong.
+
+What is needed instead is a comparison between the effects of steps $1$
+through $k$ and the requirements of the new goal, producing a partition
+into steps to keep, steps to undo, and steps to discard, plus a valid
+ordering for the undos. Undo has to respect dependencies, since an outer
+cover comes off before the inner bracket, and it has to respect
+irreversibility, because cured adhesive and set rivets do not come back
+out.
+
+Nothing in the reviewed literature does this. Rearrangement planning in
+classical robotics is adjacent but assumes a symbolic world model with
+clean pre- and post-conditions, which is exactly what a VLA does not give
+you.
+
+\subsection{Adaptation without forgetting}
+
+A system that learns variant B by fine-tuning on B and then cannot build
+variant A any more has not adapted. It has moved. Every project in this
+space needs a retention answer and most do not state one.
+
+\subsection{There is no benchmark}
+
+Every dataset in Table~\ref{tab:review} supplies one instruction per
+episode. There is no public benchmark with a mid-episode instruction
+change, no metric for how fast a system adapts, and no metric for how
+much finished work an adaptation destroyed. Defining these is a
+prerequisite for the field, not an afterthought.
+
+% ============================================================
+\section{Proposed Architecture: TaskFlux}
+\label{sec:arch}
+
+TaskFlux is an adaptation layer over an existing VLA, in six stages.
+
+\subsection{Stage 1: instruction intake}
+
+Operator speech is transcribed and passed to the orchestrator along with
+the current camera frame and the execution state, meaning which steps of
+the active plan have completed.
+
+\subsection{Stage 2: agentic orchestrator}
+
+An LLM performs four jobs in sequence.
+
+\emph{Intent understanding} produces a structured reading of the
+utterance: what the operator wants, which product variant is implied, and
+which constraints they stated.
+
+\emph{Changeover classification} assigns the utterance to one of four
+types: clarification, parameter edit, changeover, or abort. Only a
+changeover triggers reconciliation. This classification is where a large
+share of the system's errors will live, and the two error directions have
+very different costs, so the classifier should be biased toward asking
+rather than guessing.
+
+\emph{Feasibility and safety analysis} checks reachability, collision
+against the current workspace occupancy, tool and fixture availability,
+and process constraints such as torque sequence and cure time.
+
+The \emph{critique step} reports what the system cannot do and why, in a
+sentence the operator can act on, rather than failing silently or
+attempting a partial adaptation.
+
+\subsection{Stage 3: state reconciliation}
+
+The novel component. Inputs are the completed prefix of the old plan, the
+goal state implied by the new variant, and a process description that
+marks each step's reversibility and its dependencies.
+
+Output is a keep set, an undo set ordered in reverse dependency order,
+and a discard set, followed by the residual steps of the new plan. If any
+required undo touches an irreversible step, the reconciler stops and
+escalates to the operator with the specific blocking step named.
+
+\subsection{Stage 4: policy selection}
+
+A known variant, meaning one present in the skill library, routes to the
+base OpenVLA policy. An unknown variant instantiates a LoRA adapter at
+rank 32, following the OpenVLA authors' own default, and routes to that.
+
+\subsection{Stage 5: execution and validation}
+
+The selected policy executes. A validation module checks each completed
+step against its expected post-condition using the perception module, and
+checks the finished assembly against the new specification. Novel-variant
+executions run under stricter validation and with a lower intervention
+threshold.
+
+\subsection{Stage 6: knowledge update}
+
+Successful adaptations are logged to a dynamic knowledge base holding the
+skill library, a vector store of past instructions and their resolved
+plans, and execution traces.
+
+The merge engine folds an adapter into the base weights only when two
+gates pass. The quality gate requires success above threshold across a
+minimum number of executions. The retention gate re-evaluates a held-out
+set of previously mastered variants after a candidate merge and rejects
+the merge if any regresses beyond tolerance. Because merging is done in
+weight space \cite{soups,taskarith}, a rejected merge can be backed out.
+
+\subsection{Why the layer sits above the VLA rather than inside it}
+
+Two reasons, both taken from the reviewed papers.
+
+The error-cascading result in OWG \cite{owg} argues against putting more
+modules in series with perception and control. Keeping OpenVLA monolithic
+in the execution path limits the depth of the cascade.
+
+Practically, the base model stays a stock checkpoint. That means it can
+be swapped for a newer VLA without redesigning the adaptation layer,
+which matters in a field where the state of the art moves every few
+months.
+
+% ============================================================
+\section{Evaluation Protocol}
+\label{sec:eval}
+
+The core experimental unit is a \emph{changeover episode}. Begin
+executing variant A. At a controlled step $k$, issue an instruction.
+Record the classification decision, the reconciliation output, any
+refusal, the actions executed, and the final state of the assembly.
+Holding $k$ fixed per condition is what makes episodes comparable.
+
+\subsection{Metrics}
+
+\textbf{Changeover Success Rate.} Fraction of episodes where the final
+assembly matches the new specification, judged against the acceptance
+criteria a human inspector would use. Report per condition, not pooled.
+
+\textbf{Adaptation Latency.} Seconds from the end of the utterance to the
+first executed action that is correct under the new plan. Break it into
+transcription and classification, reconciliation, and policy load. A
+total of six seconds means something very different if five of them are
+adapter loading than if five are LLM reasoning.
+
+\textbf{Rework Cost.} Undo actions divided by steps completed when the
+change arrived. A full restart scores 1.0 by definition. Report
+unnecessary undos separately, since that is the reconciler's precision.
+
+\textbf{False Changeover Rate.} Clarifications and parameter edits
+misclassified as changeovers. Report missed changeovers separately. The
+two are not symmetric: a false changeover destroys completed work, a
+missed changeover produces a finished product that does not match the
+order. On a real line the second is worse, so the classifier should be
+tuned toward over-triggering and the paper should say so rather than
+reporting a single accuracy figure that hides the tradeoff.
+
+\textbf{Retention Score.} Success on variant A after the system has
+learned variant B and merged the adapter. Without this number, any claim
+about continual learning is unsupported.
+
+\subsection{Conditions}
+
+Cross these deliberately rather than sampling at random: when the change
+arrives, early against late; what the change requires, being truncation
+only, undo required, or irreversible conflict; whether the variant is
+known or novel; and how the instruction is phrased, including indirect
+phrasings such as ``we are not doing gaskets on this batch'' rather than
+only imperatives.
+
+The irreversible-conflict condition is a refusal test. Success there
+means the system refused and explained correctly, not that it completed
+the task.
+
+\subsection{Baselines}
+
+\textbf{B1.} Stock OpenVLA with the original instruction. No adaptation.
+Should fail every changeover episode. This is the floor.
+
+\textbf{B2.} Stock OpenVLA restarted with the new instruction. Clear the
+workspace, reset, run from scratch. This is what a factory does today,
+and it quantifies the cost of current practice.
+
+\textbf{B3.} LLM replanner with no reconciler. Regenerate from the new
+goal and the current frame, execute directly.
+
+\textbf{B4.} Full TaskFlux.
+
+B3 against B4 is the ablation that matters most. If B3 performs as well
+as B4, the reconciler is not earning its place and the central claim is
+weak. Run it and report it honestly either way. A negative result that is
+properly measured is publishable; an unmeasured claim is not.
+
+\subsection{Sample size}
+
+A single-arm cell will not reach the trial counts in the papers we cite.
+OWG ran 50 simulated trials per scenario \cite{owg}; OpenVLA ran 500 per
+simulation suite \cite{openvla}. We plan for 10 to 15 episodes per
+condition on hardware. Report per-condition counts, give raw numbers
+alongside percentages, and include standard error. With $n{=}10$ one
+extra failure moves the percentage by ten points, and a reader needs to
+see that. Do not pool conditions to get a bigger-looking $n$, because the
+conditions are the finding.
+
+% ============================================================
+\section{Open Problems}
+\label{sec:open}
+
+\emph{Reversibility is hand-authored.} The process description that tells
+the reconciler which steps can be undone is written by a human. Learning
+it from demonstration or from physical interaction is open and hard.
+
+\emph{Undo is harder than assembly.} Extracting a seated connector is
+contact-rich, and the OpenVLA authors concede Diffusion Policy is
+smoother on that class of task \cite{openvla}. Undo success may end up
+being the binding constraint on the whole system.
+
+\emph{Latency compounds.} Transcription, an LLM call, a reconciliation
+pass and a policy switch stack in front of a policy already running at
+single-digit hertz.
+
+\emph{Trust and authority are unresolved.} If the robot refuses an
+operator instruction, who overrides whom, and what gets logged. A
+technical paper can raise this but not settle it.
+
+\emph{Weight-space merging is poorly understood for control policies.}
+Model soups and task arithmetic were validated on classification, not on
+a policy where a small behavioural regression can mean a collision.
+
+% ============================================================
+\section{Conclusion}
+
+The vision-language-action literature has converged on a formulation that
+works: condition a pretrained vision-language model on robot
+demonstrations, emit actions as tokens, and get generalisation across
+objects and phrasings that hand-programmed systems never had. OpenVLA
+made that formulation open and cheap to adapt.
+
+The formulation carries one assumption that nobody has questioned, which
+is that the task is fixed for the duration of the episode. In high-mix
+manufacturing it is not, and the failure that follows is not a perception
+failure or a grounding failure. It is a system that keeps confidently
+building the wrong product.
+
+We reviewed twenty works against that question and found the gap
+consistent across all four themes. We separated task changeover from the
+two problems it is usually confused with, and argued that it needs
+different machinery, specifically a way to reconcile a half-built
+workspace against a replaced goal.
+
+TaskFlux is our proposal for that machinery, and the protocol in
+Section~\ref{sec:eval} is our proposal for how anyone would know whether
+it works. Neither is validated yet. The next phase of this project builds
+the reconciler and runs the changeover episodes described above on a
+single-arm assembly cell.
+
+% ============================================================
+\begin{thebibliography}{20}
+
+\bibitem{openvla}
+M.~J. Kim, K.~Pertsch, S.~Karamcheti, \emph{et al.},
+``OpenVLA: An open-source vision-language-action model,''
+in \emph{Proc. 8th Conf. Robot Learning (CoRL)}, 2024.
+
+\bibitem{rt2}
+A.~Brohan \emph{et al.},
+``RT-2: Vision-language-action models transfer web knowledge to robotic
+control,''
+in \emph{Proc. 7th Conf. Robot Learning (CoRL)}, 2023, pp. 2165--2183.
+
+\bibitem{rt1}
+A.~Brohan \emph{et al.},
+``RT-1: Robotics transformer for real-world control at scale,''
+arXiv preprint, 2022.
+
+\bibitem{openx}
+A.~O'Neill \emph{et al.},
+``Open X-Embodiment: Robotic learning datasets and RT-X models,''
+in \emph{Proc. IEEE Int. Conf. Robotics and Automation (ICRA)},
+Yokohama, Japan, 2024, pp. 6892--6903.
+
+\bibitem{quarvla}
+P.~Ding, H.~Zhao, W.~Song, \emph{et al.},
+``QUAR-VLA: Vision-language-action model for quadruped robots,''
+in \emph{Proc. European Conf. Computer Vision (ECCV)}, 2024.
+
+\bibitem{owg}
+G.~Tziafas and H.~Kasaei,
+``Towards open-world grasping with large vision-language models,''
+in \emph{Proc. Conf. Robot Learning (CoRL)}, 2024.
+
+\bibitem{fansurvey}
+J.~Fan, Y.~Yin, T.~Wang, W.~Dong, P.~Zheng, and L.~Wang,
+``Vision-language model-based human-robot collaboration for smart
+manufacturing: A state-of-the-art survey,''
+\emph{Frontiers of Engineering Management}, 2024.
+
+\bibitem{fanzheng}
+J.~Fan and P.~Zheng,
+``A vision-language-guided robotic action planning approach for ambiguity
+mitigation in human-robot collaborative manufacturing,''
+\emph{Journal of Manufacturing Systems}, vol.~74, pp.~1009--1018, 2024.
+
+\bibitem{clip}
+A.~Radford \emph{et al.},
+``Learning transferable visual models from natural language
+supervision,''
+in \emph{Proc. Int. Conf. Machine Learning (ICML)}, 2021.
+
+\bibitem{cliport}
+M.~Shridhar, L.~Manuelli, and D.~Fox,
+``CLIPort: What and where pathways for robotic manipulation,''
+in \emph{Proc. Conf. Robot Learning (CoRL)}, 2021.
+
+\bibitem{peract}
+M.~Shridhar, L.~Manuelli, and D.~Fox,
+``Perceiver-Actor: A multi-task transformer for robotic manipulation,''
+in \emph{Proc. Conf. Robot Learning (CoRL)}, 2022.
+
+\bibitem{octo}
+Octo Model Team,
+``Octo: An open-source generalist robot policy,''
+in \emph{Proc. Robotics: Science and Systems (RSS)}, 2024.
+
+\bibitem{saycan}
+M.~Ahn \emph{et al.},
+``Do as I can, not as I say: Grounding language in robotic
+affordances,''
+in \emph{Proc. Conf. Robot Learning (CoRL)}, 2022.
+
+\bibitem{cap}
+J.~Liang \emph{et al.},
+``Code as policies: Language model programs for embodied control,''
+in \emph{Proc. IEEE Int. Conf. Robotics and Automation (ICRA)}, 2023.
+
+\bibitem{innermono}
+W.~Huang \emph{et al.},
+``Inner monologue: Embodied reasoning through planning with language
+models,''
+in \emph{Proc. Conf. Robot Learning (CoRL)}, 2022.
+
+\bibitem{lora}
+E.~J. Hu \emph{et al.},
+``LoRA: Low-rank adaptation of large language models,''
+in \emph{Proc. Int. Conf. Learning Representations (ICLR)}, 2022.
+
+\bibitem{qlora}
+T.~Dettmers, A.~Pagnoni, A.~Holtzman, and L.~Zettlemoyer,
+``QLoRA: Efficient finetuning of quantized LLMs,''
+in \emph{Proc. Advances in Neural Information Processing Systems
+(NeurIPS)}, 2023.
+
+\bibitem{soups}
+M.~Wortsman \emph{et al.},
+``Model soups: Averaging weights of multiple fine-tuned models improves
+accuracy without increasing inference time,''
+in \emph{Proc. Int. Conf. Machine Learning (ICML)}, 2022.
+
+\bibitem{taskarith}
+G.~Ilharco \emph{et al.},
+``Editing models with task arithmetic,''
+in \emph{Proc. Int. Conf. Learning Representations (ICLR)}, 2023.
+
+\bibitem{ewc}
+J.~Kirkpatrick \emph{et al.},
+``Overcoming catastrophic forgetting in neural networks,''
+\emph{Proc. National Academy of Sciences}, vol.~114, no.~13,
+pp.~3521--3526, 2017.
+
+\end{thebibliography}
+
+\end{document}

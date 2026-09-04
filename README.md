@@ -61,6 +61,7 @@ Four baselines: stock OpenVLA with the original instruction (the floor), stock O
 | [docs/02-review-paper-draft.md](docs/02-review-paper-draft.md) | Review paper draft. Ten sections, twenty references |
 | [docs/03-literature-review-table.md](docs/03-literature-review-table.md) | Twenty-row comparative table in four themed groups, plus a six-row slide version and a verification checklist |
 | [docs/04-evaluation-protocol.md](docs/04-evaluation-protocol.md) | Metrics, conditions, baselines, and sample size guidance |
+| [paper/main.tex](paper/main.tex) | The same draft in IEEE conference LaTeX, with both tables typeset and an embedded bibliography |
 | `Architecture A3.png` | Six-stage proposed architecture |
 | `proposed_system_flow_diagram.png` | Simplified data flow |
 
