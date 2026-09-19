@@ -11,7 +11,7 @@ Supervisor: Dr. Ramachandro Majji
 
 Vision-language-action models let a robot map a camera image and a natural language instruction directly to motor commands, and recent open models such as OpenVLA reach 70.6 percent mean success across 29 manipulation tasks while remaining fine-tunable on a single GPU. All of this work shares one assumption: the instruction holds constant for the length of the episode. On a high-mix, low-volume assembly line that assumption breaks several times a shift, because the operator changes the product variant while the robot is partway through building the previous one.
 
-This paper reviews vision-language robotics for collaborative manufacturing through the specific lens of task change. We group twenty representative works into generalist VLA policies, language grounding and ambiguity resolution, LLM-based planning and replanning, and parameter-efficient continual adaptation, and we show that each group leaves the same thing untouched. Ambiguity work resolves which object an instruction refers to while holding the goal fixed. Replanning work reacts to execution failure while holding the goal fixed. Nothing addresses the case where the goal itself is withdrawn and replaced mid-episode.
+This paper reviews vision-language robotics for collaborative manufacturing through the specific lens of task change. We group twenty representative works into generalist VLA policies, language grounding and ambiguity resolution, LLM-based planning and replanning, and parameter-efficient continual adaptation, and we show that each group leaves the same thing untouched. Ambiguity work resolves which object an instruction refers to while holding the goal fixed. Replanning work reacts to execution failure while holding the goal fixed. Recent task-switching and undo-on-correction work handles the case where the goal itself is withdrawn and replaced mid-episode at the policy or plan level, without reasoning about which completed steps can stay, which must come off, and when a change must be refused because a step cannot be undone.
 
 We then propose TaskFlux, an adaptation layer that sits above an existing VLA rather than replacing it. Its four components are a changeover intent classifier, a partial-assembly state reconciler that decides which completed steps to keep, undo or discard, a feasibility and safety gate that can refuse a request and explain why, and a LoRA-based specialised policy head whose adapters are merged into the base model only after passing a retention check. Because no benchmark exists for mid-episode task change, we also define an evaluation protocol with five metrics: changeover success rate, adaptation latency, rework cost, false changeover rate, and retention score.
 
@@ -29,7 +29,7 @@ Vision-language-action models looked like the answer. Train one policy on enough
 
 But look at how these systems are actually evaluated. An episode begins, an instruction is provided, the policy runs to completion or failure, the episode ends. The instruction is an input, supplied once. There is no path in the architecture for it to change while the robot is working.
 
-That is exactly what happens in a real changeover. And the moment it happens, a second problem appears that nobody has written about: the workspace is no longer empty. Parts have already been placed. Screws are already torqued. A plan generated fresh from the current camera frame will not account for any of that, and executing it will produce either a collision or a hybrid assembly that matches neither specification.
+That is exactly what happens in a real changeover. And the moment it happens, a second problem appears that the VLA work we reviewed does not treat: the workspace is no longer empty. Parts have already been placed. Screws are already torqued. A plan generated fresh from the current camera frame will not account for any of that, and executing it will produce either a collision or a hybrid assembly that matches neither specification.
 
 This paper does two things. First it reviews the field with that specific failure in mind, to establish that the gap is real rather than assumed. Second it proposes an architecture, TaskFlux, for closing it, along with the evaluation protocol that would be needed to test any such system.
 
@@ -38,7 +38,7 @@ Contributions:
 1. A structured review of twenty works across four themes, each assessed against a single question: what happens if the task changes mid-episode
 2. A three-way distinction between referential ambiguity, execution failure and task changeover, which have been conflated in the literature and which require different mechanisms
 3. TaskFlux, an adaptation layer over an existing VLA, whose central component is a partial-assembly state reconciler
-4. A five-metric evaluation protocol for mid-episode task change, since no benchmark currently measures it
+4. A five-metric evaluation protocol for mid-episode task change, since we found no benchmark that measures rework or refusal for it
 
 Section 2 covers background. Section 3 states the review method. Section 4 is the thematic review. Section 5 is the comparative table. Section 6 is the gap analysis. Section 7 presents TaskFlux. Section 8 gives the evaluation protocol. Section 9 lists open problems. Section 10 concludes.
 
@@ -146,7 +146,7 @@ Referential ambiguity: the goal is agreed, but which object does the instruction
 
 Execution failure: the goal is agreed and the referent is clear, but the world did not do what the plan predicted. Trigger is a divergence between expected and observed state. The goal is fixed. Inner Monologue and its descendants address this.
 
-Task changeover: the operator has withdrawn the goal and supplied a different one, while execution is in progress. Trigger is an external decision, not an error. The goal is replaced. Nothing addresses this.
+Task changeover: the operator has withdrawn the goal and supplied a different one, while execution is in progress. Trigger is an external decision, not an error. The goal is replaced. Recent policy-level task-switching work touches it; we found none that reasons about partial-assembly state.
 
 The three need different machinery. Ambiguity needs better grounding. Failure needs monitoring and recovery. Changeover needs goal-state comparison and a way to deal with work already done.
 
@@ -158,13 +158,13 @@ Suppose a plan has n steps and the goal is replaced at step k. The naive respons
 
 What is actually needed is a comparison between the effects of steps 1 through k and the requirements of the new goal, producing a partition into steps to keep, steps to undo, and steps to discard, plus a valid ordering for the undos. Undo has to respect dependencies, an outer cover comes off before the inner bracket, and it has to respect irreversibility, because cured adhesive and set rivets do not come back out.
 
-Nothing in the reviewed literature does this. Rearrangement planning in classical robotics is adjacent but assumes a symbolic world model with clean pre- and post-conditions, which is exactly what a VLA does not give you.
+We found nothing in the reviewed literature that does this with a completeness guarantee, although plan repair, selective disassembly planning and undo-on-correction work are adjacent. Rearrangement planning in classical robotics is adjacent but assumes a symbolic world model with clean pre- and post-conditions, which is exactly what a VLA does not give you.
 
 ### 6.3 Adaptation without forgetting
 
 A system that learns variant B by fine-tuning on B and then cannot build A any more has not adapted. It has moved. Every project in this space needs a retention answer and most do not state one.
 
-### 6.4 There is no benchmark
+### 6.4 There is no benchmark for rework or refusal
 
 Every dataset in Table 1 supplies one instruction per episode. There is no public benchmark with a mid-episode instruction change, no metric for how fast a system adapts, and no metric for how much finished work an adaptation destroyed. Defining these is a prerequisite for the field, not an afterthought.
 
@@ -264,7 +264,7 @@ Merging in weight space is not well understood for control policies. Model soups
 
 The vision-language-action literature has converged on a formulation that works: condition a pretrained vision-language model on robot demonstrations, emit actions as tokens, and get generalisation across objects and phrasings that hand-programmed systems never had. OpenVLA made that formulation open and cheap to adapt.
 
-The formulation carries one assumption that nobody has questioned, which is that the task is fixed for the duration of the episode. In high-mix manufacturing it is not, and the failure that follows is not a perception failure or a grounding failure. It is a system that keeps confidently building the wrong product.
+The formulation carries one assumption that most of it leaves implicit, which is that the task is fixed for the duration of the episode. In high-mix manufacturing it is not, and the failure that follows is not a perception failure or a grounding failure. It is a system that keeps confidently building the wrong product.
 
 We reviewed twenty works against that specific question and found the gap consistent across all four themes. We separated task changeover from the two problems it is usually confused with, referential ambiguity and execution failure, and argued that it needs different machinery, specifically a way to reconcile a half-built workspace against a replaced goal.
 

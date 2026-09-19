@@ -4,7 +4,9 @@ Vision Language Robotics for Collaborative Manufacturing.
 
 Major project, Batch 03, Department of CSE (AI and ML), Vardhaman College of Engineering, Hyderabad. Supervisor: Dr. Ramachandro Majji.
 
-This repository holds the literature review, the refined problem framing, the review paper draft, and the evaluation protocol for TaskFlux, an adaptation layer that lets a collaborative robot revise its assembly plan when the operator changes the product variant mid-task.
+This repository holds the literature review, the refined problem framing, the review paper draft, the evaluation protocol, and a tested implementation of the planning layer for TaskFlux, an adaptation layer that lets a collaborative robot revise its assembly plan when the operator changes the product variant mid-task.
+
+**Status.** The planning layer is implemented and tested (207 tests) against a step-level simulator. Nothing has been run on a robot or on OpenVLA weights. See [docs/06](docs/06-implementation-and-results.md) for results and limits, and [docs/05](docs/05-novelty-and-formal-results.md) for the novelty search, which narrowed some of the claims below.
 
 ---
 
@@ -24,21 +26,33 @@ That is the gap. It is not a perception problem and not a grounding problem. It 
 |---|---|---|---|
 | Referential ambiguity | referent is unclear | fixed | Fan and Zheng (2024) |
 | Execution failure | execution diverged from prediction | fixed | Inner Monologue, DoReMi, REFLECT |
-| Task changeover | operator changed the requirement | replaced mid-episode | nothing |
+| Task changeover | operator changed the requirement | replaced mid-episode | SwitchVLA (policy level, implicit), plan-repair and undo-on-correction work; none found that reasons about covering and irreversibility with a completeness guarantee (docs/05) |
 
-Ambiguity work resolves which object an instruction refers to while everyone still agrees on what is being built. Replanning work reacts when the world does not match the prediction, with the goal still intact. Neither covers the case where the goal is withdrawn and replaced while execution is in progress.
+Ambiguity work resolves which object an instruction refers to while everyone still agrees on what is being built. Replanning work reacts when the world does not match the prediction, with the goal still intact. Neither covers the case where the goal is withdrawn and replaced while execution is in progress. Recent work that does touch it (SwitchVLA, a vision-language-policy replanner, an undo-on-correction cognitive architecture) handles it at the policy or plan level. None of them, as far as the search found, decides which completed steps can stay, which must come off in what order, and when the change has to be refused because a step cannot be undone.
 
 ## The five contributions
 
 1. **Changeover intent classification.** Sort each operator utterance into clarification, parameter edit, changeover, or abort. Existing systems collapse all four into "an instruction". The two error directions have opposite costs: a false changeover destroys completed work, a missed changeover finishes the wrong product.
 
-2. **Partial-assembly state reconciliation.** The novel component. Partition completed steps into keep, undo and discard against the new goal, order the undos by reverse dependency, and escalate to the operator when a required undo crosses an irreversible step such as cured adhesive or a set rivet. No paper in the reviewed set does this.
+2. **Partial-assembly state reconciliation.** The novel component. Partition completed steps into keep, undo and discard against the new goal, order the undos by reverse dependency, and escalate to the operator when a required undo crosses an irreversible step such as cured adhesive or a set rivet. The concept has neighbours (plan repair, selective disassembly planning, undo generation), so the claim is the formal treatment, not the idea: a unique minimum undo set, an exact refusal certificate, and its coupling to triage. See docs/05.
 
 3. **A refusal path.** Check reachability, collision against current workspace occupancy, tool availability and process constraints before committing. When a check fails, say which constraint blocked it in a sentence the operator can act on, rather than returning an error code.
 
 4. **Known versus novel routing with a gated merge-back.** Known variants route to the base policy. Novel ones get a LoRA adapter at rank 32, following the OpenVLA authors' own default. An adapter merges into the base weights only after passing a quality gate and a retention gate.
 
-5. **An evaluation protocol.** No benchmark measures mid-episode task change, so defining the measurement is part of the contribution.
+5. **An evaluation protocol.** We found no benchmark that measures rework or refusal for mid-episode task change, so defining the measurement is part of the contribution.
+
+## What is implemented
+
+| Contribution | Status |
+|---|---|
+| 1. Intent classification | Implemented as a calibrated four-way classifier on synthetic phrasings, with a lexical stop override. Classifier alone missed 11.5% of stop requests, which is why the override exists. |
+| 2. State reconciliation | Implemented with proofs and exhaustive tests. Optimal for every non-negative cost model. Adds nothing over naive replanning when nothing needs undoing. Matches restart when an irreversible step is in the way. Clearly better when undo is needed (about 160 s against 290 to 310 s, 0 unneeded undos). |
+| 3. Refusal path | Implemented, with a complete certificate and a plain-language reason. Tools and irreversibility are checked. Reachability and collision are not modelled. |
+| 4. Routing and gated merge | Gate logic implemented and checked on a toy only. The gate needs about 36 to 57 evaluation episodes to pass, more than the protocol budgets. |
+| 5. Evaluation protocol | Implemented as a simulator harness with all five metrics and four baselines, plus two additions: time to productive work, and a split of changes into truncation, undo, risky and irreversible. |
+| New: cost-coupled triage | Act, continue or ask, with regrets derived from the reconciler. 2.7 s mean regret against 4.2 s for a fixed threshold. |
+| New: zero-regret hedged execution | Proven and tested. Never worse in either world; modest gain (a few seconds per confirmation). |
 
 ## Evaluation metrics
 
@@ -61,11 +75,25 @@ Four baselines: stock OpenVLA with the original instruction (the floor), stock O
 | [docs/02-review-paper-draft.md](docs/02-review-paper-draft.md) | Review paper draft. Ten sections, twenty references |
 | [docs/03-literature-review-table.md](docs/03-literature-review-table.md) | Twenty-row comparative table in four themed groups, plus a six-row slide version and a verification checklist |
 | [docs/04-evaluation-protocol.md](docs/04-evaluation-protocol.md) | Metrics, conditions, baselines, and sample size guidance |
+| [docs/05-novelty-and-formal-results.md](docs/05-novelty-and-formal-results.md) | Prior-art search, revised novelty claims, lemmas with proofs, more ideas |
+| [docs/06-implementation-and-results.md](docs/06-implementation-and-results.md) | Architecture, results, bugs the tests caught, threats to validity |
+| [docs/07-weekly-progress-report.md](docs/07-weekly-progress-report.md) | Short report for the weekly meeting |
+| [taskflux/](taskflux) | The implementation: process model, reconciler, hedging, triage, classifier, controller, simulator |
+| [tests/](tests) | 207 tests, including exhaustive optimality checks |
+| [experiments/](experiments) | Experiment runner and results (`experiments/results/results.md`) |
 | [paper/main.tex](paper/main.tex) | The same draft in IEEE conference LaTeX, with both tables typeset and an embedded bibliography |
 | `Architecture A3.png` | Six-stage proposed architecture |
 | `proposed_system_flow_diagram.png` | Simplified data flow |
 
 The five source PDFs and the abstract video are excluded from version control. The papers are copyrighted and this repository is public. See `.gitignore`.
+
+## Quick start
+
+```bash
+python -m pytest tests -q                  # 207 tests
+python -m experiments.run_experiments      # regenerates experiments/results/
+python -m taskflux.demo                    # scripted operator dialogue
+```
 
 ## A note on one of the sources
 

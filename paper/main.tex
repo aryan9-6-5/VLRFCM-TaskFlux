@@ -60,9 +60,7 @@ and ambiguity resolution, LLM-based planning and replanning, and
 parameter-efficient continual adaptation, and we show that each group
 leaves the same thing untouched. Ambiguity work resolves which object an
 instruction refers to while holding the goal fixed. Replanning work
-reacts to execution failure while holding the goal fixed. Nothing
-addresses the case where the goal itself is withdrawn and replaced
-mid-episode.
+reacts to execution failure while holding the goal fixed. Recent task-switching and undo-on-correction work handles the case where the goal itself is withdrawn and replaced mid-episode at the policy or plan level, without reasoning about which completed steps can stay, which must come off, and when a change must be refused because a step cannot be undone.
 
 We then propose TaskFlux, an adaptation layer that sits above an
 existing VLA rather than replacing it. Its four components are a
@@ -70,7 +68,7 @@ changeover intent classifier, a partial-assembly state reconciler that
 decides which completed steps to keep, undo or discard, a feasibility
 gate that can refuse a request and explain why, and a LoRA-based
 specialised policy head whose adapters merge into the base model only
-after passing a retention check. Because no benchmark exists for
+after passing a retention check. Because we found no benchmark measuring rework or refusal for
 mid-episode task change, we also define an evaluation protocol with five
 metrics.
 \end{abstract}
@@ -112,7 +110,7 @@ episode ends. The instruction is an input, supplied once. There is no
 path in the architecture for it to change while the robot is working.
 
 That is exactly what happens in a real changeover. And the moment it
-happens, a second problem appears that nobody has written about: the
+happens, a second problem appears that the VLA work we reviewed does not treat: the
 workspace is no longer empty. Parts have already been placed. Screws are
 already torqued. A plan generated fresh from the current camera frame
 will not account for any of that, and executing it will produce either a
@@ -519,7 +517,7 @@ Referential ambiguity & Referent is unclear & Fixed &
 Execution failure & Execution diverged from prediction & Fixed &
 \cite{innermono} \\
 Task changeover & Operator changed the requirement & Replaced
-mid-episode & Nothing \\
+mid-episode & Policy or plan level only \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -546,7 +544,7 @@ cover comes off before the inner bracket, and it has to respect
 irreversibility, because cured adhesive and set rivets do not come back
 out.
 
-Nothing in the reviewed literature does this. Rearrangement planning in
+We found nothing in the reviewed literature that does this with a completeness guarantee, although plan repair, selective disassembly planning and undo-on-correction work are adjacent. Rearrangement planning in
 classical robotics is adjacent but assumes a symbolic world model with
 clean pre- and post-conditions, which is exactly what a VLA does not give
 you.
@@ -557,7 +555,7 @@ A system that learns variant B by fine-tuning on B and then cannot build
 variant A any more has not adapted. It has moved. Every project in this
 space needs a retention answer and most do not state one.
 
-\subsection{There is no benchmark}
+\subsection{There is no benchmark for rework or refusal}
 
 Every dataset in Table~\ref{tab:review} supplies one instruction per
 episode. There is no public benchmark with a mid-episode instruction
@@ -766,7 +764,7 @@ demonstrations, emit actions as tokens, and get generalisation across
 objects and phrasings that hand-programmed systems never had. OpenVLA
 made that formulation open and cheap to adapt.
 
-The formulation carries one assumption that nobody has questioned, which
+The formulation carries one assumption that most of it leaves implicit, which
 is that the task is fixed for the duration of the episode. In high-mix
 manufacturing it is not, and the failure that follows is not a perception
 failure or a grounding failure. It is a system that keeps confidently
