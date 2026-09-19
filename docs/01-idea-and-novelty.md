@@ -1,5 +1,8 @@
 # TaskFlux: the idea, and what is actually new about it
 
+> **Update after the prior-art search and implementation (see [05](05-novelty-and-formal-results.md) and [06](06-implementation-and-results.md)).**
+> Several sentences below say that no paper or no VLA addresses mid-episode task change. That is too strong. SwitchVLA (policy-level task switching), a vision-language-policy replanner, and an undo-on-correction cognitive architecture all touch it. What survives is narrower: a formal treatment of the half-built workspace (unique minimum undo set, exact refusal certificate), cost-coupled triage, zero-regret hedged execution, and the measurement protocol. Read the claims below with that correction. The text is left as written so the revision history is visible.
+
 ## The problem in one paragraph
 
 A cobot on a high-mix line is halfway through assembling variant A. The operator walks up and says "switch to the B housing, skip the foam gasket". Every VLA model published so far will treat that sentence as an instruction to execute right now. None of them will ask the question that matters: has the goal changed, and if so, what do I do about the three parts I have already placed?
@@ -41,7 +44,7 @@ Existing systems collapse all four into "an instruction". Separating them is che
 
 ### 2. Partial-assembly state reconciliation
 
-This is the hardest part and the part nobody has published on.
+This is the hardest part, and the part for which we found no complete treatment (05 lists the neighbours).
 
 When the goal changes at step k of an n-step plan, the workspace is not in a clean initial state. Three screws are torqued, a connector is seated, a gasket is in place. Naive replanning from the current camera frame produces a plan for a fresh workbench, which is wrong, and executing it will either collide with existing parts or produce a mongrel assembly.
 
@@ -55,13 +58,13 @@ Then it emits a plan of the form: undo sequence in reverse dependency order, fol
 
 Undo is not free and not always possible. Adhesive cures. Rivets do not come out. So the reconciler also needs a notion of irreversible steps, and when an undo crosses one it has to escalate to the operator rather than attempt it.
 
-This single component is the clearest novel contribution in the project. It is concrete, it is implementable, it has an obvious failure mode to measure, and no paper in the folder or in the wider VLA literature addresses it.
+This single component is the clearest novel contribution in the project. It is concrete, it is implementable, it has an obvious failure mode to measure, and we found no paper, in the folder or in the wider VLA literature, that treats it with a completeness guarantee.
 
 ### 3. A refusal path
 
 An adaptation layer that always says yes is a liability on a factory floor. Before the new plan is committed, it gets checked for reachability, for collisions against the current occupancy of the workspace, for tool availability, and for whether the requested change violates a process constraint such as a cure time or a torque sequence.
 
-The output when a check fails is not an error code. It is a sentence explaining what specifically blocked it, so the operator can amend the request. "I can switch to the B housing, but the gasket is already seated with adhesive and I cannot remove it without damaging the part" is a useful thing for a robot to say, and no VLA can say it today.
+The output when a check fails is not an error code. It is a sentence explaining what specifically blocked it, so the operator can amend the request. "I can switch to the B housing, but the gasket is already seated with adhesive and I cannot remove it without damaging the part" is a useful thing for a robot to say, and no stock VLA can say it today.
 
 ### 4. Known versus novel routing, with gated merge-back
 
@@ -73,7 +76,7 @@ That retention check is what keeps this from being a slow-motion catastrophic fo
 
 ### 5. An evaluation protocol that does not exist yet
 
-There is no benchmark for mid-episode task change, so a large part of the contribution is defining how you would even measure it. See `04-evaluation-protocol.md` for the full set. The short version is five metrics:
+We found no benchmark that measures rework or refusal for mid-episode task change, so a large part of the contribution is defining how you would even measure it. See `04-evaluation-protocol.md` for the full set. The short version is five metrics:
 
 - Changeover Success Rate: did the finished assembly match the new specification
 - Adaptation Latency: seconds from end of utterance to first correct action under the new plan

@@ -1,0 +1,7 @@
+numpy
+scipy
+pandas
+matplotlib
+scikit-learn
+pytest
+torch  # only for experiments/retention_toy.py

@@ -14,3 +14,7 @@ __pycache__/
 *.pyc
 .DS_Store
 Thumbs.db
+
+# Generated experiment data (regenerate with python -m experiments.run_experiments)
+experiments/results/*.csv
+.pytest_cache/

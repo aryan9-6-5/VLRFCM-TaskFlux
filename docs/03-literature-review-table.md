@@ -82,3 +82,21 @@ You still need to confirm from the original sources:
 - The exact success figure for Fan and Zheng (2024). Your current deck cites 93.3 percent. Find it in the JMS paper before it goes in the draft
 - Author list, venue and year for every row in groups C and D, since I described those qualitatively rather than pulling numbers
 - Full bibliographic details for RT-1, RT-2 and Open X-Embodiment page ranges. Your existing reference slide has these, so cross-check rather than retyping
+
+---
+
+## Additional related work found in the novelty search
+
+Added after the search recorded in [05](05-novelty-and-formal-results.md). None of these were in the original twenty rows, and none has been read in full. **Confirm authors, venue, year and claims before adding a row.**
+
+| Work | Theme | One-line relevance | Verification status |
+|---|---|---|---|
+| SwitchVLA, arXiv 2506.03574 | Policy-level task switching | Closest competitor. Implicit switching from execution state. | abstract read |
+| Vision-Language-Policy model for dynamic robot task planning, arXiv 2512.19178 | Replanning with history | Forward replan on a new instruction. | page read |
+| "Do This Instead", ACM THRI, DOI 10.1145/3623385 | Correction handling | Generates undo steps on corrected instructions (rule-based cognitive architecture). | search summary only |
+| Fox, Gerevini, Long, Serina, "Plan stability", ICAPS 2006 | Plan repair | Repair versus replanning in classical planning. | search summary only |
+| Nebel and Koehler (IJCAI 1993; AIJ 1995) | Plan modification complexity | Conservative plan modification is as hard as planning in general. | search summary only |
+| Yin et al., selective disassembly sequence planning, DOI 10.1177/09544054231201873 | Disassembly planning | Undo ordering to reach a target part. | search summary only |
+| KnowNo, arXiv 2307.01928 | Asking when uncertain | Conformal prediction for LLM planners. | search summary only |
+| Yell At Your Robot, arXiv 2403.12910; Hi Robot, arXiv 2502.19417 | Language corrections | Hierarchical correction handling. | search summary only |
+| InternVLA-M1, arXiv 2510.13778 | VLA with mid-execution instruction test | Reports new instructions issued mid-execution. | search snippet only |
