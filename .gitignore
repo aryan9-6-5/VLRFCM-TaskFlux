@@ -1,7 +1,5 @@
 # Copyrighted source PDFs. This repository is public; papers are not redistributable.
 papers/
-lit_survey.pdf
-vhj.pdf
 
 # Large media
 abstract_video/
@@ -18,3 +16,12 @@ Thumbs.db
 # Generated experiment data (regenerate with python -m experiments.run_experiments)
 experiments/results/*.csv
 .pytest_cache/
+
+# Story build output (the deployable copy is site/index.html)
+story/dist/
+
+.playwright-mcp/
+
+# Local tooling and session backups
+.claude/
+_backup-*/

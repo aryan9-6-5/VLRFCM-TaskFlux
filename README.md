@@ -6,7 +6,7 @@ Major project, Batch 03, Department of CSE (AI and ML), Vardhaman College of Eng
 
 This repository holds the literature review, the refined problem framing, the review paper draft, the evaluation protocol, and a tested implementation of the planning layer for TaskFlux, an adaptation layer that lets a collaborative robot revise its assembly plan when the operator changes the product variant mid-task.
 
-**Status.** The planning layer is implemented and tested (207 tests) against a step-level simulator. Nothing has been run on a robot or on OpenVLA weights. See [docs/06](docs/06-implementation-and-results.md) for results and limits, and [docs/05](docs/05-novelty-and-formal-results.md) for the novelty search, which narrowed some of the claims below.
+**Status.** The planning layer is implemented and tested (243 tests) against a step-level simulator, with a hardening phase done (second process, ablations, failure analysis, perception noise, geometry stub, pinned environment). Nothing has been run on a robot or on OpenVLA weights. See [docs/06](docs/06-implementation-and-results.md) for results and limits, and [docs/05](docs/05-novelty-and-formal-results.md) for the novelty search, which narrowed some of the claims below.
 
 ---
 
@@ -47,12 +47,14 @@ Ambiguity work resolves which object an instruction refers to while everyone sti
 | Contribution | Status |
 |---|---|
 | 1. Intent classification | Implemented as a calibrated four-way classifier on synthetic phrasings, with a lexical stop override. Classifier alone missed 11.5% of stop requests, which is why the override exists. |
-| 2. State reconciliation | Implemented with proofs and exhaustive tests. Optimal for every non-negative cost model. Adds nothing over naive replanning when nothing needs undoing. Matches restart when an irreversible step is in the way. Clearly better when undo is needed (about 160 s against 290 to 310 s, 0 unneeded undos). |
+| 2. State reconciliation | Implemented with proofs and exhaustive tests. Optimal for every non-negative cost model. Adds nothing over naive replanning when nothing needs undoing. Matches restart when an irreversible step is in the way. Clearly better in time and parts lost when undo is needed (gearbox: 162 s and 0% parts lost against 314 to 326 s and 15 to 16%). Success rates are about 99% for every system that recovers by scrapping, so success is not the differentiator. |
 | 3. Refusal path | Implemented, with a complete certificate and a plain-language reason. Tools and irreversibility are checked. Reachability and collision are not modelled. |
 | 4. Routing and gated merge | Gate logic implemented and checked on a toy only. The gate needs about 36 to 57 evaluation episodes to pass, more than the protocol budgets. |
 | 5. Evaluation protocol | Implemented as a simulator harness with all five metrics and four baselines, plus two additions: time to productive work, and a split of changes into truncation, undo, risky and irreversible. |
-| New: cost-coupled triage | Act, continue or ask, with regrets derived from the reconciler. 2.7 s mean regret against 4.2 s for a fixed threshold. |
-| New: zero-regret hedged execution | Proven and tested. Never worse in either world; modest gain (a few seconds per confirmation). |
+| New: cost-coupled triage | Act, continue or ask, with regrets derived from the reconciler. 2.9 s mean regret against 4.2 s for a fixed threshold. |
+| New: zero-regret hedged execution | Proven and tested, under the condition that the hypothesised undo cannot damage the part. Never worse in either world; modest gain (2.7 s per confirmation, in 44% of states). |
+| New: perception noise | A free consistency check notices 47 to 89% of verifier errors; inspecting only decision-critical steps recovers near-full success at half the inspections. Simulated, independent per-step errors. |
+| New: geometry | Reach, human safety zones and derived covers, as a stub. Not robot kinematics. |
 
 ## Evaluation metrics
 
@@ -79,19 +81,32 @@ Four baselines: stock OpenVLA with the original instruction (the floor), stock O
 | [docs/06-implementation-and-results.md](docs/06-implementation-and-results.md) | Architecture, results, bugs the tests caught, threats to validity |
 | [docs/07-weekly-progress-report.md](docs/07-weekly-progress-report.md) | Short report for the weekly meeting |
 | [taskflux/](taskflux) | The implementation: process model, reconciler, hedging, triage, classifier, controller, simulator |
-| [tests/](tests) | 207 tests, including exhaustive optimality checks |
+| [tests/](tests) | 251 tests, including exhaustive optimality checks |
+| [examples/](examples) | Process specs as JSON (gearbox, sensor module) |
+| `Dockerfile`, `requirements.lock.txt` | Pinned environment. The Dockerfile has not been built yet. |
 | [experiments/](experiments) | Experiment runner and results (`experiments/results/results.md`) |
 | [paper/main.tex](paper/main.tex) | The same draft in IEEE conference LaTeX, with both tables typeset and an embedded bibliography |
-| `Architecture A3.png` | Six-stage proposed architecture |
-| `proposed_system_flow_diagram.png` | Simplified data flow |
+| [docs/figures/architecture-a3.png](docs/figures/architecture-a3.png) | Six-stage proposed architecture |
+| [docs/figures/system-flow-diagram.png](docs/figures/system-flow-diagram.png) | Simplified data flow |
+| [presentation/](presentation) | Slides (PPTX and PDF). The abstract video is excluded from version control |
+| [site/](site) | Deployable static site: the story, the earlier story and the demo |
+| [story/](story) | Source of the scroll story and its data pipeline (`story/SPINE.md`) |
 
 The five source PDFs and the abstract video are excluded from version control. The papers are copyrighted and this repository is public. See `.gitignore`.
+
+## Visual demo
+
+`demo/index.html` is a single self-contained page (no server, no internet) that shows the prototype working: drag a slider for how far the build has got, pick what the operator says, and see which steps are kept, taken off in order, and rebuilt, what the robot replies, and how long a restart or a naive replanner would take instead. Press *Play the changeover* to watch the steps come off and go back on. Every value is computed by the real code and embedded as JSON. Rebuild it with `python -m demo.build_demo`, then open the file in a browser. It shows the simulated planning layer only, and says so on the page.
+
+## Story site
+
+`site/` is a static site for a non-technical visitor: an icon-led scroll story at `/`, the earlier detailed story at `/classic/`, and the interactive demo at `/demo/`. Every number on the story comes from `story/src/data/evidence.json`, generated by `python story/scripts/build_data.py` from the code and `experiments/results/results.md`; `tests/test_story_data.py` pins those numbers to the results file and to the docs they are quoted from. Rebuild with `cd story && npm install && npm run site`. `vercel.json` at the repository root serves only `site/`, so a Git-connected Vercel project deploys the prebuilt files with no build step. The design notes and fact ledger are in `story/SPINE.md`.
 
 ## Quick start
 
 ```bash
-python -m pytest tests -q                  # 207 tests
-python -m experiments.run_experiments      # regenerates experiments/results/
+python -m experiments.reproduce            # tests, then every experiment (1 to 2 minutes)
+python -m pytest tests -q                  # 243 tests
 python -m taskflux.demo                    # scripted operator dialogue
 ```
 
