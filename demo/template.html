@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TaskFlux changeover prototype</title>
+<style>
+:root{
+  --paper:#ECEFED; --panel:#F5F7F6; --ink:#15202B; --ink2:#485663; --rule:#C3CCC9; --grid:#DDE3E0;
+  --keep:#2A7654; --undo:#B92F27; --build:#1F5FBF; --amber:#855A00; --leave:#77837F;
+  --keep-bg:#DAEDE3; --undo-bg:#F5DDDA; --build-bg:#DAE5F6; --leave-bg:#E2E6E4; --on-solid:#FFFFFF;
+  --font:Bahnschrift,"DIN Alternate","Roboto Condensed","Arial Narrow","Segoe UI",system-ui,sans-serif;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --paper:#11171D; --panel:#171F27; --ink:#E7EDF1; --ink2:#A2B1BD; --rule:#2B3743; --grid:#1B252E;
+    --keep:#5FC495; --undo:#F17C71; --build:#82ABF6; --amber:#E4B440; --leave:#7F8C95;
+    --keep-bg:#173226; --undo-bg:#3B1F1C; --build-bg:#192A49; --leave-bg:#212C34; --on-solid:#0E1319;
+  }
+}
+*{box-sizing:border-box}
+html{background:var(--paper)}
+body{margin:0;color:var(--ink);font-family:var(--font);font-size:16px;line-height:1.5;background:var(--paper)}
+h1,h2,h3,p,fieldset,legend,dl,dd,dt,ol,ul{margin:0;padding:0}
+button,input{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--build);outline-offset:2px}
+
+header{padding:30px 36px 22px;border-bottom:1px solid var(--rule)}
+h1{font-size:34px;font-weight:700;letter-spacing:.01em;line-height:1.1}
+.lead{margin-top:10px;max-width:64ch;font-size:19px;line-height:1.4}
+.note{margin-top:8px;color:var(--ink2);font-size:15px}
+
+main{display:grid;grid-template-columns:318px minmax(0,1fr)}
+aside{padding:26px 26px 30px 36px;border-right:1px solid var(--rule)}
+.stage{padding:24px 36px 8px 30px;min-width:0}
+@media (max-width:920px){
+  main{grid-template-columns:1fr}
+  aside{border-right:0;border-bottom:1px solid var(--rule);padding:22px 20px}
+  .stage{padding:20px 20px 8px}
+  header{padding:24px 20px 18px}
+}
+
+h2{font-size:18px;font-weight:600;line-height:1.25}
+.ctl + .ctl{margin-top:28px}
+.hint{color:var(--ink2);font-size:14px;margin-top:4px}
+output{display:block;margin-top:8px;font-size:15px}
+input[type=range]{width:100%;margin:12px 0 0;accent-color:var(--build);height:28px}
+fieldset{border:0;min-width:0}
+legend{font-size:18px;font-weight:600;margin-bottom:8px}
+.utt{display:block;position:relative;padding:9px 10px 9px 16px;cursor:pointer;border-left:3px solid var(--rule);margin:0 0 2px}
+.utt input{position:absolute;opacity:0;inset:0;width:100%;height:100%;margin:0;cursor:pointer}
+.utt span{display:block;font-size:16px;line-height:1.3}
+.utt small{display:block;color:var(--ink2);font-size:13.5px;margin-top:2px}
+.utt:has(input:checked){border-left-color:var(--build);background:var(--panel)}
+.utt:has(input:focus-visible){outline:3px solid var(--build);outline-offset:1px}
+.utt:hover{background:var(--panel)}
+
+.graph-head{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:10px 24px}
+.graph-head p{color:var(--ink2);font-size:15px;max-width:60ch}
+.btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+button{background:var(--panel);border:1px solid var(--ink2);border-radius:2px;padding:7px 16px;cursor:pointer;font-weight:600}
+button:hover{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+button.primary{background:var(--build);border-color:var(--build);color:var(--on-solid)}
+button.primary:hover{filter:brightness(1.1);background:var(--build);color:var(--on-solid)}
+.sheet{margin-top:14px;border:1px solid var(--rule);
+  background-color:var(--panel);
+  background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);
+  background-size:24px 24px}
+svg{display:block;width:100%;height:auto}
+.sheet{overflow-x:auto}
+.sheet > svg{min-width:760px}
+.node polygon{stroke-width:1.6;transition:fill .25s,stroke .25s}
+.node text{font-size:12.5px;fill:var(--ink);font-family:var(--font)}
+.n-keep polygon,.n-keepnow polygon{fill:var(--keep-bg);stroke:var(--keep)}
+.n-undo polygon,.n-lost polygon{fill:var(--undo-bg);stroke:var(--undo)}
+.n-build polygon,.n-pending polygon{fill:var(--build-bg);stroke:var(--build)}
+.n-built polygon{fill:var(--build);stroke:var(--build)} .n-built text{fill:var(--on-solid);font-weight:600}
+.n-removed polygon{fill:transparent;stroke:var(--undo);stroke-dasharray:5 4}
+.n-removed text{fill:var(--ink2)}
+.n-leave polygon{fill:var(--leave-bg);stroke:var(--leave)}
+.n-skip polygon{fill:transparent;stroke:var(--rule)} .n-skip text{fill:var(--ink2)}
+.n-skip{opacity:.75}
+.ring{fill:none;stroke:var(--ink);stroke-width:2.4;animation:ring 1.1s ease-in-out infinite}
+@keyframes ring{50%{opacity:.25}}
+.badge rect{stroke:none}
+.badge text{font-size:11.5px;font-weight:700;fill:var(--on-solid)}
+.b-undo rect{fill:var(--undo)} .b-build rect{fill:var(--build)}
+.edge{fill:none;stroke:var(--ink2);stroke-width:1.3;opacity:.55}
+.cover{fill:none;stroke:var(--amber);stroke-width:2;stroke-dasharray:6 4}
+.glabel{font-size:13px;fill:var(--ink2);font-family:var(--font)}
+.lock{fill:none;stroke:var(--ink2);stroke-width:1.5} .lock rect{fill:var(--ink2);stroke:none}
+.lock.hot{stroke:var(--amber)} .lock.hot rect{fill:var(--amber)}
+.blocker polygon{stroke:var(--amber);stroke-width:3}
+
+.legend{display:flex;flex-wrap:wrap;gap:6px 22px;margin-top:12px;font-size:14px;color:var(--ink2);list-style:none}
+.legend li{display:flex;align-items:center;gap:7px}
+.legend svg{width:26px;height:14px;flex:none}
+.plan{margin-top:16px;display:grid;gap:6px;max-width:80ch;font-size:15.5px}
+.plan b{font-weight:700}
+
+.reply{margin-top:26px;padding-top:22px;border-top:1px solid var(--rule)}
+.reply h2{color:var(--ink2);font-weight:500;font-size:15px}
+.say{margin-top:6px;font-size:23px;line-height:1.32;max-width:66ch;font-weight:500}
+.decide{display:grid;grid-template-columns:minmax(220px,300px) minmax(0,1fr);gap:20px 40px;margin-top:20px;align-items:start}
+@media (max-width:760px){.decide{grid-template-columns:1fr}}
+.tag{display:inline-block;padding:4px 12px;border:2px solid;font-weight:700;font-size:17px;border-radius:2px}
+.t-act{color:var(--build);border-color:var(--build)} .t-ask{color:var(--amber);border-color:var(--amber)}
+.t-continue{color:var(--ink2);border-color:var(--ink2)} .t-halt{color:var(--undo);border-color:var(--undo)}
+.why{margin-top:10px;font-size:15px;max-width:44ch}
+.costs{margin-top:10px;color:var(--ink2);font-size:14px;max-width:46ch}
+.probs h3{font-size:15px;font-weight:600;margin-bottom:6px}
+.prob{display:grid;grid-template-columns:8.6em minmax(0,1fr) 3.2em;gap:10px;align-items:center;font-size:14.5px;margin:4px 0}
+.prob i{display:block;height:10px;background:var(--build);transform-origin:left;transition:width .35s;opacity:.9}
+.prob .track{background:var(--leave-bg);height:10px}
+.prob b{text-align:right;font-weight:600}
+.prob.top i{background:var(--ink)}
+
+.compare{margin:26px 36px 0;padding:22px 0 8px;border-top:1px solid var(--rule)}
+.compare > p{color:var(--ink2);font-size:15px;max-width:72ch;margin-top:4px}
+.rows{margin-top:16px;display:grid;gap:14px;max-width:940px}
+.row{display:grid;grid-template-columns:210px minmax(0,1fr);gap:8px 20px;align-items:center}
+@media (max-width:760px){.row{grid-template-columns:1fr}}
+.row .nm{font-weight:600;font-size:16px;line-height:1.25}
+.barline{display:flex;align-items:center;gap:12px}
+.bar{height:20px;background:var(--leave);transition:width .4s;min-width:2px}
+.row.tf .bar{background:var(--build)}
+.val{font-weight:700;font-size:18px;min-width:3.4em}
+.extra{grid-column:2;color:var(--ink2);font-size:14px;margin-top:-4px}
+@media (max-width:760px){.extra{grid-column:1}}
+footer{margin:30px 36px 40px;padding-top:16px;border-top:1px solid var(--rule);color:var(--ink2);font-size:14.5px;max-width:92ch}
+footer p + p{margin-top:6px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+@media (prefers-reduced-motion:reduce){
+  .ring{animation:none} .prob i,.bar,.node polygon{transition:none}
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>TaskFlux</h1>
+  <p class="lead">A robot is halfway through building gearbox A when the operator asks for B. This page shows what the prototype decides, and what it does with the parts already built.</p>
+  <p class="note">Simulated. No robot and no OpenVLA model is involved. Every value here is computed by the project's Python code.</p>
+</header>
+
+<main>
+  <aside aria-label="Controls">
+    <div class="ctl">
+      <h2 id="kh">How far the build has got</h2>
+      <p class="hint">Drag to change what is already on the bench when the operator speaks.</p>
+      <input id="k" type="range" min="0" max="11" step="1" value="6" aria-labelledby="kh" aria-describedby="kout">
+      <output id="kout" for="k"></output>
+    </div>
+    <fieldset class="ctl" id="utts">
+      <legend>The operator says</legend>
+    </fieldset>
+  </aside>
+
+  <section class="stage" aria-label="Workpiece and decision">
+    <div class="graph-head">
+      <div>
+        <h2>What happens to the parts already built</h2>
+        <p id="gsub"></p>
+      </div>
+    </div>
+    <div class="btns">
+      <button id="play" class="primary" type="button">Play the changeover</button>
+      <button id="next" type="button">Next step</button>
+      <button id="reset" type="button">Reset</button>
+    </div>
+    <div class="sheet"><svg id="g" role="img" aria-label="Gearbox build steps and the changeover plan"></svg></div>
+    <ul class="legend" aria-label="Legend">
+      <li><svg viewBox="0 0 26 14"><rect width="26" height="14" fill="var(--keep-bg)" stroke="var(--keep)" stroke-width="1.6"/></svg>Kept</li>
+      <li><svg viewBox="0 0 26 14"><rect width="26" height="14" fill="var(--undo-bg)" stroke="var(--undo)" stroke-width="1.6"/></svg>Comes off (or is lost)</li>
+      <li><svg viewBox="0 0 26 14"><rect width="26" height="14" fill="var(--build-bg)" stroke="var(--build)" stroke-width="1.6"/></svg>Built next</li>
+      <li><svg viewBox="0 0 26 14"><rect width="26" height="14" fill="var(--leave-bg)" stroke="var(--leave)" stroke-width="1.6"/></svg>Harmless, left in place</li>
+      <li><svg viewBox="0 0 26 14"><path d="M0 7H26" stroke="var(--amber)" stroke-width="2" stroke-dasharray="6 4"/></svg>Blocks the step it points to</li>
+      <li><svg viewBox="0 0 26 14"><rect x="7" y="6" width="12" height="8" fill="var(--ink2)"/><path d="M9 6V4a4 4 0 0 1 8 0v2" fill="none" stroke="var(--ink2)" stroke-width="1.6"/></svg>Cannot be undone</li>
+    </ul>
+    <div class="plan" id="plan"></div>
+
+    <div class="reply" aria-live="polite">
+      <h2>The robot says</h2>
+      <p class="say" id="say"></p>
+      <div class="decide">
+        <div>
+          <span class="tag" id="tag"></span>
+          <p class="why" id="why"></p>
+          <p class="costs" id="costs"></p>
+        </div>
+        <div class="probs">
+          <h3>How the classifier read the sentence</h3>
+          <div id="probs"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<section class="compare" aria-label="Comparison">
+  <h2 id="ch">How long B takes to finish from here</h2>
+  <p id="cnote"></p>
+  <div class="rows" id="rows"></div>
+</section>
+
+<footer>
+  <p>This is a simulation of the planning layer only. Step times, step failure rates, damage risk and the operator phrasings are assumptions or were written for this project. The classifier saw only phrasings from a generator, so its confidence says nothing about real shop-floor speech.</p>
+  <p>Regenerate the page with <b>python -m demo.build_demo</b>. The data behind every bar is in <b>experiments/results/results.md</b>.</p>
+</footer>
+
+<script>
+const D = __DATA__;
+const NS = "http://www.w3.org/2000/svg";
+const W = D.box.w, H = D.box.h;
+const S = Object.fromEntries(D.steps.map(s => [s.id, s]));
+const $ = id => document.getElementById(id);
+const lab = id => S[id].label;
+let k = 6, u = 0, idx = -1, timer = null;
+
+function svg(tag, attrs, parent) {
+  const e = document.createElementNS(NS, tag);
+  for (const a in attrs) e.setAttribute(a, attrs[a]);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+function wrap(t, max) {
+  const words = t.split(" "), lines = [""];
+  for (const w of words) {
+    const cur = lines[lines.length - 1];
+    if (cur && (cur + " " + w).length > max) lines.push(w); else lines[lines.length - 1] = cur ? cur + " " + w : w;
+  }
+  return lines.length > 2 ? [lines[0], lines.slice(1).join(" ")] : lines;
+}
+function actions(plan) {
+  const a = [];
+  if (plan.scrap) a.push({k: "scrap"});
+  plan.undo.forEach(id => a.push({k: "undo", id}));
+  plan.forward.forEach(id => a.push({k: "build", id}));
+  return a;
+}
+function simulate(st, plan, upto) {
+  let present = new Set(st.done); const removed = new Set(), built = new Set(), acts = actions(plan);
+  for (let i = 0; i <= upto; i++) {
+    const a = acts[i];
+    if (a.k === "scrap") { st.done.forEach(x => removed.add(x)); present = new Set(); }
+    else if (a.k === "undo") { present.delete(a.id); removed.add(a.id); }
+    else { present.add(a.id); built.add(a.id); }
+  }
+  return {present, removed, built, current: upto >= 0 ? acts[upto] : null};
+}
+function role(id, st, plan, sim) {
+  if (!sim) {
+    if (st.done.includes(id)) {
+      if (plan.scrap) return "lost";
+      if (plan.undo.includes(id)) return "undo";
+      return plan.discard.includes(id) ? "leave" : "keep";
+    }
+    return plan.forward.includes(id) ? "build" : "skip";
+  }
+  if (sim.present.has(id)) return sim.built.has(id) ? "built" : (plan.discard.includes(id) ? "leave" : "keepnow");
+  if (sim.removed.has(id)) return "removed";
+  return plan.forward.includes(id) ? "pending" : "skip";
+}
+function link(a, b, cls, parent) {
+  let x1, y1, x2, y2, d;
+  if (a.x + W + 8 <= b.x) { x1 = a.x + W; y1 = a.y + H / 2; x2 = b.x; y2 = b.y + H / 2; const dx = (x2 - x1) / 2; d = `M${x1} ${y1}C${x1 + dx} ${y1} ${x2 - dx} ${y2} ${x2} ${y2}`; }
+  else if (b.x + W + 8 <= a.x) { x1 = a.x; y1 = a.y + H / 2; x2 = b.x + W; y2 = b.y + H / 2; const dx = (x2 - x1) / 2; d = `M${x1} ${y1}C${x1 + dx} ${y1} ${x2 - dx} ${y2} ${x2} ${y2}`; }
+  else if (a.y < b.y) { x1 = a.x + W / 2; y1 = a.y + H; x2 = b.x + W / 2; y2 = b.y; const dy = (y2 - y1) / 2; d = `M${x1} ${y1}C${x1} ${y1 + dy} ${x2} ${y2 - dy} ${x2} ${y2}`; }
+  else { x1 = a.x + W / 2; y1 = a.y; x2 = b.x + W / 2; y2 = b.y + H; const dy = (y2 - y1) / 2; d = `M${x1} ${y1}C${x1} ${y1 + dy} ${x2} ${y2 - dy} ${x2} ${y2}`; }
+  svg("path", {d, class: cls}, parent);
+}
+
+function drawGraph(st, plan) {
+  const g = $("g"); g.innerHTML = "";
+  g.setAttribute("viewBox", `0 0 ${D.box.width} ${D.box.height}`);
+  const sim = idx >= 0 ? simulate(st, plan, idx) : null;
+  const gl = {A: "Only in variant A", shared: "In both variants", B: "Only in variant B"};
+  ["A", "shared", "B"].forEach(gr => {
+    const ys = D.steps.filter(s => s.group === gr).map(s => s.y);
+    if (ys.length) { const t = svg("text", {x: 16, y: Math.min(...ys) - 12, class: "glabel"}, g); t.textContent = gl[gr]; }
+  });
+  D.edges.requires.forEach(([a, b]) => link(S[a], S[b], "edge", g));
+  D.edges.covers.forEach(([u2, s]) => link(S[u2], S[s], "cover", g));
+  const blockers = new Set(plan.blockers.filter(b => b.kind === "irreversible").map(b => b.step));
+  D.steps.forEach(s => {
+    const r = role(s.id, st, plan, sim);
+    const n = svg("g", {class: `node n-${r}` + (blockers.has(s.id) && !sim ? " blocker" : ""), transform: `translate(${s.x} ${s.y})`}, g);
+    const pts = `0,0 ${W - 10},0 ${W},10 ${W},${H} 10,${H} 0,${H - 10}`;
+    svg("polygon", {points: pts}, n);
+    const lines = wrap(s.label, 18);
+    lines.forEach((ln, i) => { const t = svg("text", {x: 10, y: lines.length === 1 ? 29 : 21 + i * 15}, n); t.textContent = ln; });
+    if (s.irreversible) {
+      const lk = svg("g", {transform: `translate(${W - 21} 4)`}, n);
+      const p = svg("g", {class: "lock" + (blockers.has(s.id) ? " hot" : "")}, lk);
+      svg("path", {d: "M3 6V4.5a3 3 0 0 1 6 0V6"}, p); svg("rect", {x: 1.5, y: 6, width: 9, height: 6.5, rx: 1}, p);
+    }
+    const bs = [];
+    const ui = plan.undo.indexOf(s.id), bi = plan.forward.indexOf(s.id);
+    if (!plan.scrap && ui >= 0) bs.push(["undo", "−" + (ui + 1)]);
+    if (plan.scrap && st.done.includes(s.id)) bs.push(["undo", "lost"]);
+    if (bi >= 0) bs.push(["build", "+" + (bi + 1)]);
+    let bx = 8;
+    bs.forEach(([c, txt]) => {
+      const w = txt.length * 7 + 12;
+      const b = svg("g", {class: "badge b-" + c, transform: `translate(${bx} -8)`}, n);
+      svg("rect", {width: w, height: 16, rx: 2}, b);
+      const t = svg("text", {x: w / 2, y: 12, "text-anchor": "middle"}, b); t.textContent = txt;
+      bx += w + 4;
+    });
+    if (sim && sim.current && sim.current.id === s.id) {
+      svg("polygon", {points: `-4,-4 ${W - 6},-4 ${W + 4},6 ${W + 4},${H + 4} 6,${H + 4} -4,${H - 6}`, class: "ring"}, n);
+    }
+  });
+  const sum = idx >= 0 ? `Step ${idx + 1} of ${actions(plan).length}` : "Preview of the plan";
+  g.setAttribute("aria-label", `${sum}. ${st.done.length} steps done before the operator spoke.`);
+}
+
+function joinLabels(ids) { return ids.map(lab).join(", "); }
+function drawPlan(st, plan) {
+  const el = $("plan"); el.innerHTML = "";
+  const add = (lead, txt) => { const p = document.createElement("p"); const b = document.createElement("b"); b.textContent = lead + " "; p.append(b, document.createTextNode(txt)); el.appendChild(p); };
+  if (plan.status === "refuse") { add("Refused.", plan.explanation); return; }
+  if (plan.scrap) {
+    const blk = plan.blockers.find(b => b.kind === "irreversible");
+    add("The part has to be scrapped.", blk ? `${lab(blk.step)} cannot be undone, and B cannot be built around it. A restart costs about ${plan.scrap_total} s.` : `Scrapping is cheaper than a risky salvage: about ${plan.scrap_total} s.`);
+    add("Built again from nothing, in order:", joinLabels(plan.forward) + ".");
+    return;
+  }
+  add("Comes off, in order:", plan.undo.length ? joinLabels(plan.undo) + "." : "nothing.");
+  if (plan.discard.length) add("Left in place, harmless in B:", joinLabels(plan.discard) + ".");
+  add("Built next, in order:", plan.forward.length ? joinLabels(plan.forward) + "." : "nothing.");
+}
+
+const TAG = {act: "Acts now", ask: "Asks first", continue: "Carries on with A", halt: "Stops"};
+function drawReply(st, r) {
+  $("say").textContent = r.say;
+  const tag = $("tag"); tag.textContent = TAG[r.action]; tag.className = "tag t-" + r.action;
+  let why = "";
+  if (r.action === "act") why = "It is confident this is a changeover, and the plan is safe to run without asking.";
+  else if (r.action === "ask") why = st.act_allowed
+    ? "It is not certain enough to move parts, so it asks."
+    : "Switching would scrap the workpiece, so it needs a yes first.";
+  else if (r.action === "continue") why = "It reads this as a clarification or an edit, not a new product, so the build carries on.";
+  else why = "A stop request halts the arm before any cost is weighed.";
+  if (r.action === "ask" && r.hedged.length) why += ` While it waits it keeps building ${joinLabels(r.hedged)}, which both versions need.`;
+  $("why").textContent = why;
+  $("costs").textContent = r.action === "halt" ? "" :
+    `Cost of a wrong call, in seconds: acting on a false change about ${st.ra}, ignoring a real one about ${st.rc}, asking about ${st.ca}.`;
+  const names = ["clarification", "parameter edit", "changeover", "stop"];
+  const top = r.probs.indexOf(Math.max(...r.probs));
+  $("probs").innerHTML = "";
+  r.probs.forEach((p, i) => {
+    const d = document.createElement("div"); d.className = "prob" + (i === top ? " top" : "");
+    const a = document.createElement("span"); a.textContent = names[i];
+    const tr = document.createElement("div"); tr.className = "track";
+    const bar = document.createElement("i"); bar.style.width = Math.round(p * 100) + "%"; tr.appendChild(bar);
+    const v = document.createElement("b"); v.textContent = Math.round(p * 100) + "%";
+    d.append(a, tr, v); $("probs").appendChild(d);
+  });
+}
+
+function drawCompare() {
+  const c = D.compare[k];
+  const keys = ["TF", "B2", "B3b", "B3a"];
+  const times = keys.filter(x => c[x].time !== null && c[x].success >= 0.2).map(x => c[x].time);
+  const max = Math.max(...times, 1);
+  $("cnote").textContent = `Seconds from the end of the operator's sentence to a finished, correct B, averaged over ${D.runs} simulated runs each, using assumed step success and damage rates.`;
+  const rows = $("rows"); rows.innerHTML = "";
+  keys.forEach(x => {
+    const r = c[x];
+    const row = document.createElement("div"); row.className = "row" + (x === "TF" ? " tf" : "");
+    const nm = document.createElement("div"); nm.className = "nm"; nm.textContent = D.systems[x];
+    const bl = document.createElement("div"); bl.className = "barline";
+    const ex = document.createElement("div"); ex.className = "extra";
+    if (r.time === null || r.success < 0.2) {
+      const v = document.createElement("span"); v.className = "val"; v.textContent = "Fails";
+      bl.appendChild(v);
+      ex.textContent = x === "B3a" ? `Adds B's steps on top of what is already there and gets no correct B in ${Math.round((1 - r.success) * 100)}% of runs.` : "No correct B.";
+    } else {
+      const bar = document.createElement("div"); bar.className = "bar"; bar.style.width = `min(${(r.time / max) * 100}%, 640px)`;
+      bar.style.width = ((r.time / max) * 100) + "%"; bar.style.maxWidth = "560px";
+      const v = document.createElement("span"); v.className = "val"; v.textContent = r.time + " s";
+      bl.append(bar, v);
+      const parts = [];
+      parts.push(r.lost > 0 ? `${Math.round(r.lost * 100)}% of parts damaged along the way` : "no parts damaged");
+      if (r.scrapped > 0) parts.push(`workpiece scrapped in ${Math.round(r.scrapped * 100)}% of runs`);
+      ex.textContent = parts.join(", ") + ".";
+    }
+    row.append(nm, bl, ex); rows.appendChild(row);
+  });
+}
+
+function render() {
+  const st = D.states[k], r = D.responses[k][u], plan = st.plan;
+  const last = st.done.length ? lab(st.done[st.done.length - 1]) : null;
+  $("kout").textContent = st.done.length === 0 ? "Nothing built yet." : `${st.done.length} of 11 steps done. Last: ${last}.`;
+  $("gsub").textContent = plan.scrap ? "The changeover to B would scrap this workpiece. Here is the rebuild." : "The plan if the operator does want B. It runs only if the robot acts or is told yes.";
+  drawGraph(st, plan); drawPlan(st, plan); drawReply(st, r); drawCompare();
+  const n = actions(plan).length;
+  $("next").disabled = n === 0 || idx >= n - 1;
+  $("play").textContent = timer ? "Pause" : (idx >= n - 1 && n > 0 ? "Play again" : "Play the changeover");
+}
+function stop() { if (timer) { clearInterval(timer); timer = null; } }
+function stepOnce() {
+  const n = actions(D.states[k].plan).length;
+  if (idx < n - 1) idx++;
+  render();
+  if (idx >= n - 1) { stop(); render(); }
+}
+$("play").onclick = () => {
+  const n = actions(D.states[k].plan).length;
+  if (timer) { stop(); render(); return; }
+  if (n === 0) return;
+  if (idx >= n - 1) idx = -1;
+  stepOnce();
+  timer = setInterval(stepOnce, 950);
+  render();
+};
+$("next").onclick = () => { stop(); stepOnce(); };
+$("reset").onclick = () => { stop(); idx = -1; render(); };
+$("k").oninput = e => { stop(); k = +e.target.value; idx = -1; render(); };
+
+const box = $("utts");
+D.utterances.forEach((x, i) => {
+  const l = document.createElement("label"); l.className = "utt";
+  const inp = document.createElement("input"); inp.type = "radio"; inp.name = "u"; inp.value = i; inp.checked = i === u;
+  const t = document.createElement("span"); t.textContent = "“" + x.text + "”";
+  const s = document.createElement("small"); s.textContent = x.kind;
+  l.append(inp, t, s); box.appendChild(l);
+  inp.onchange = () => { stop(); u = i; idx = -1; render(); };
+});
+render();
+</script>
+</body>
+</html>
