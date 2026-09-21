@@ -1,0 +1,4 @@
+# Upload only the static site (site/) and vercel.json. Nothing from the research code or papers is served.
+/*
+!/site
+!/vercel.json
