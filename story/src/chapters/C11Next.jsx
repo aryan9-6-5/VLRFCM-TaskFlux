@@ -8,21 +8,19 @@ import './chapters.css'
 
 // The next question, drawn as a car line. It is an idea: the planner handles one process at a time.
 const BEATS = [
-  ['What if many robots share it?', 'Everyone starts from the same car.'],
-  ['Then the design changes.', 'A new roofline arrives.'],
-  ['Every robot gets the same snapshot.', 'Same finished parts, same starting point.'],
-  ['Four small problems, four lanes.', 'Each robot takes one.'],
-  ['Robots work side by side.', 'Their dots fill in.'],
-  ['Cured paint cannot come off.', 'That lane stops at the lock.'],
-  ['Two robots want one part.', 'The order settles it.'],
-  ['Undo in reverse, then rebuild.', 'Roof off first. Then the new roof.'],
+  ['The design changes mid-build.', 'What if many robots share the same car?'],
+  ['Every robot gets the same snapshot.', 'The problem splits into four parallel lanes.'],
+  ['Four small problems, four lanes.', 'Each robot takes one, side by side.'],
+  ['A lock stops one lane.', 'Cured paint stays. Order settles a clash.'],
   ['One line, new roofline.', 'The untouched dots did not change.'],
 ]
+// The drawing has nine states; each beat shows the last state it explains.
+const STEP_OF = [0, 2, 4, 6, 8]
 const N = BEATS.length
 
 function Stage({ p }) {
   const [step, setStep] = useState(0)
-  useMotionValueEvent(p, 'change', (v) => setStep(Math.max(0, Math.min(N - 1, Math.floor(v * N)))))
+  useMotionValueEvent(p, 'change', (v) => setStep(STEP_OF[Math.max(0, Math.min(N - 1, Math.floor(v * N)))]))
   return (
     <div className="stage">
       <div className="copy">

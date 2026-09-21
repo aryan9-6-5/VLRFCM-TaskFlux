@@ -8,6 +8,7 @@ export const F = raw.facts
 export const COUNTS = raw.counts
 export const TRIAGE = raw.triage
 export const PLANS = raw.plans
+export const PROBLEM = raw.problem
 
 export const pct = (x) => `${Math.round(x * 100)}%`
 export const pct1 = (x) => `${(x * 100).toFixed(1)}%`

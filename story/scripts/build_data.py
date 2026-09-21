@@ -37,6 +37,11 @@ FACTS = {
     "stop_missed_pct": {"value": 11.5, "source": "docs/06-implementation-and-results.md", "quote": "misses about 11.5% of stops"},
     "random_processes": {"value": 40, "source": "docs/05-novelty-and-formal-results.md", "quote": "on 40 random small processes"},
     "withdrawn_gap": {"value": [99.9, 84.7], "source": "docs/06-implementation-and-results.md", "quote": "99.9% against 84.7%"},
+    "left_policy": {"value": "real policy in the loop", "source": "docs/07-weekly-progress-report.md", "quote": "Real policy in the loop"},
+    "left_verifier": {"value": "vision-based step verifier", "source": "docs/07-weekly-progress-report.md", "quote": "Vision-based step verifier"},
+    "left_annotation": {"value": "independent annotation of the second process", "source": "docs/07-weekly-progress-report.md", "quote": "Get the second process annotated by someone else"},
+    "left_speech": {"value": "recorded operator phrasings", "source": "docs/07-weekly-progress-report.md", "quote": "Recorded operator phrasings"},
+    "no_robot_gpu": {"value": "7B model does not fit the 4 GB GPU", "source": "docs/07-weekly-progress-report.md", "quote": "The development machine has a 4 GB GPU and the 7B model does not fit."},
     "novelty": {"value": "moderate", "source": "docs/05-novelty-and-formal-results.md", "quote": "Honest strength assessment: moderate"},
 }
 

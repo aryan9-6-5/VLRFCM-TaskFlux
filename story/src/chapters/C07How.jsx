@@ -77,7 +77,7 @@ function Triage({ p }) {
 export default function C07How() {
   return (
     <div id="how" className="chapter c07">
-      <Pinned height={480}>
+      <Pinned height={400}>
         {(p) => (
           <div className="stage">
             <div className="copy">
@@ -106,7 +106,7 @@ export default function C07How() {
           </div>
         )}
       </Pinned>
-      <Pinned height={340}>
+      <Pinned height={300}>
         {(p) => (
           <div className="stage">
             <div className="copy">

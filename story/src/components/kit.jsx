@@ -35,7 +35,7 @@ export function useRamp(p, a, b, from = 0, to = 1) {
 function BarRow({ p, a, label, value, display, tone = 'old', note, Icon, max, dnf }) {
   const o = useTransform(p, ramp(a, a + 0.04))
   const y = useTransform(o, (v) => 12 * (1 - v))
-  const w = useTransform(p, (v) => `${Math.max(0.8, ramp(a + 0.02, a + 0.14)(v) * (value / max) * 100)}%`)
+  const w = useTransform(p, (v) => `${Math.max(0.8, ramp(a + 0.015, a + 0.06)(v) * (value / max) * 100)}%`)
   return (
     <motion.div className="bar" style={{ opacity: o, y }}>
       <div className="bar-head">
@@ -49,7 +49,7 @@ function BarRow({ p, a, label, value, display, tone = 'old', note, Icon, max, dn
 }
 
 export function BarRows({ p, a, rows, max, className = '' }) {
-  return <div className={`bars ${className}`}>{rows.map((r, i) => <BarRow key={r.label} p={p} a={a + i * 0.03} max={max} {...r} />)}</div>
+  return <div className={`bars ${className}`}>{rows.map((r, i) => <BarRow key={r.label} p={p} a={a + i * 0.02} max={max} {...r} />)}</div>
 }
 
 /** Every car drawing carries this: the cars explain the idea; the measured numbers come from a simulated gearbox. */

@@ -16,7 +16,7 @@ const LAYERS = [
 export default function C06Idea() {
   return (
     <div id="idea" className="chapter c06">
-      <Pinned height={340}>
+      <Pinned height={280}>
         {(p) => {
           const frame = useTransform(p, ramp(0.36, 0.44))
           return (
@@ -28,7 +28,7 @@ export default function C06Idea() {
                 </Block>
                 <Block p={p} a={0.36} b={1} last>
                   <h2 className="display d-lg">TaskFlux adds <em>a thinking layer</em> above them.</h2>
-                  <p className="lede">It decides before the robot moves.</p>
+                  <p className="lede">It works out what has to come off before the robot moves. Everything else stays.</p>
                 </Block>
               </div>
               <div className="vis">

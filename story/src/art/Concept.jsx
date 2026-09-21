@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { animate, motion, useInView, useMotionValue, useReducedMotion, useTransform } from "framer-motion";
 import { ArrowLineUp, ArrowsClockwise, Check, Eye, Hammer, Lock, Warning } from "@phosphor-icons/react";
 import { C } from "../tokens.js";
+import Car from "./Car.jsx";
 
 /*
  * One car on a line. The design changes, the line forks into four lanes (one robot each), and the lanes
@@ -62,53 +63,38 @@ function useNarrow() {
   return n;
 }
 
-/* ---------------------------------------------------------------- the car: separate groups so parts can slide on and off */
-function CarArt({ lit = 7, roof = "old", quick = false }) {
-  const tr = (i, extra = 0) => ({ duration: quick ? 0 : T, ease: EASE, delay: quick ? 0 : i * 0.14 + extra });
-  const on = (i) => (i < lit ? 1 : 0.18);
-  const showRails = roof === "lifted" || roof === "new";
-  return (
-    <g strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" stroke="var(--carline)">
-      <motion.g role="img" aria-label="chassis" initial={false} animate={{ opacity: on(0) }} transition={tr(0)}>
-        <rect x="24" y="82" width="212" height="12" rx="6" fill="var(--carline)" />
-      </motion.g>
-      <motion.g role="img" aria-label="paint and panels" initial={false} animate={{ opacity: on(6) }} transition={tr(6)}>
-        <path d="M22 82 V64 Q22 54 34 52 L70 47 H188 L226 53 Q238 55 238 66 V82 Z" fill="var(--car)" />
-      </motion.g>
-      <motion.g role="img" aria-label="motor" initial={false} animate={{ opacity: on(2) }} transition={tr(2)}>
-        <rect x="196" y="55" width="34" height="23" rx="6" fill="var(--old)" />
-        <circle cx="213" cy="66.5" r="5" fill="var(--glass)" />
-      </motion.g>
-      <motion.g role="img" aria-label="doors and windows" initial={false} animate={{ opacity: on(4) }} transition={tr(4)}>
-        <path d="M76 47 Q86 27 112 25 H168 Q190 28 200 47 Z" fill="var(--glass)" />
-        <path d="M108 49 V80 H166 V49" fill="none" />
-        <path d="M148 60 H158" fill="none" />
-      </motion.g>
-      <motion.g role="img" aria-label="seats" initial={false} animate={{ opacity: on(3) }} transition={tr(3)}>
-        <path d="M90 50 V23 Q90 17 96 17 H104 Q110 17 110 23 V50 Z" fill="var(--carline)" />
-        <path d="M134 50 V23 Q134 17 140 17 H148 Q154 17 154 23 V50 Z" fill="var(--carline)" />
-      </motion.g>
-      <motion.g role="img" aria-label="wheels" initial={false} animate={{ opacity: on(1) }} transition={tr(1)}>
-        <circle cx="66" cy="94" r="16" fill="var(--carline)" stroke="var(--bg)" />
-        <circle cx="66" cy="94" r="5" fill="var(--glass)" stroke="none" />
-        <circle cx="196" cy="94" r="16" fill="var(--carline)" stroke="var(--bg)" />
-        <circle cx="196" cy="94" r="5" fill="var(--glass)" stroke="none" />
-      </motion.g>
-      <motion.g role="img" aria-label="rails for the roof" initial={false} animate={{ opacity: showRails ? 1 : 0 }} transition={{ duration: quick ? 0 : T, ease: EASE }} stroke="var(--dim)">
-        <path d="M84 -46 V14 M196 -46 V14" fill="none" />
-      </motion.g>
-      <motion.g role="img" aria-label="old roof" initial={false} animate={{ y: roof === "old" ? 0 : -46, opacity: roof === "old" || roof === "lifted" ? on(5) : 0 }} transition={tr(5)}>
-        <path d="M80 30 Q90 8 118 6 H156 Q184 8 196 30 Z" fill="var(--car)" />
-      </motion.g>
-      <motion.g role="img" aria-label="new roof" initial={false} animate={{ y: roof === "new" ? 0 : -70, opacity: roof === "new" ? 1 : 0 }} transition={{ duration: quick ? 0 : T, ease: EASE, delay: quick ? 0 : roof === "new" ? 0.8 : 0 }}>
-        <path d="M70 34 Q100 10 140 8 Q176 8 204 34 Z" fill="var(--accent)" />
-      </motion.g>
-    </g>
-  );
+/* ---------------------------------------------------------------- the car: the same coupe as the rest of the story */
+/** Eases a motion value to `target` after `delay`. `quick` jumps straight there. */
+function useTo(target, { duration = T, delay = 0 } = {}) {
+  const mv = useMotionValue(target);
+  useEffect(() => {
+    const c = animate(mv, target, { duration, ease: EASE, delay });
+    return () => c.stop();
+  }, [mv, target, duration, delay]);
+  return mv;
 }
 
-function CarBox({ x, y, w, ...props }) {
-  return <svg x={x} y={y} width={w} height={(w * 120) / 260} viewBox="0 0 260 120" overflow="visible"><CarArt {...props} /></svg>;
+/* `lit` parts are drawn fully, the rest are faint. `roof` is old (in place), lifted (off, old) or new (replacement in place). */
+function CarBox({ x, y, w, lit = 7, roof = "old", quick = false }) {
+  const tr = (i, extra = 0) => ({ duration: quick ? 0 : T, delay: quick ? 0 : i * 0.14 + extra });
+  const on = (i) => (i < lit ? 1 : 0.18);
+  const chassis = useTo(on(0), tr(0));
+  const wheels = useTo(on(1), tr(1));
+  const motor = useTo(on(2), tr(2));
+  const seats = useTo(on(3), tr(3));
+  const doors = useTo(on(4), tr(4));
+  const paint = useTo(on(6), tr(6));
+  const oldRoofY = useTo(roof === "old" ? 0 : -46, tr(5));
+  const oldRoofO = useTo(roof === "old" || roof === "lifted" ? on(5) : 0, tr(5));
+  const newRoof = { duration: quick ? 0 : T, delay: quick ? 0 : roof === "new" ? 0.8 : 0 };
+  const newRoofY = useTo(roof === "new" ? 0 : -70, newRoof);
+  const newRoofO = useTo(roof === "new" ? 1 : 0, newRoof);
+  return (
+    <Car x={x} y={y} width={w} label="The car" parts={{
+      chassis: { o: chassis }, wheels: { o: wheels }, motor: { o: motor }, seats: { o: seats }, doors: { o: doors }, paint: { o: paint },
+      roof: { o: oldRoofO, y: oldRoofY }, newRoof: { o: newRoofO, y: newRoofY },
+    }} />
+  );
 }
 
 /* ---------------------------------------------------------------- pieces of the line */

@@ -47,8 +47,9 @@ function Scene({ p }) {
 export default function C05Gap() {
   return (
     <div id="gap" className="chapter c05">
-      <Pinned height={460}>
-        {(p) => (
+      <Pinned height={380}>
+        {(p) => {
+          return (
           <div className="stage">
             <div className="copy">
               <Block p={p} a={0} b={0.2} first>
@@ -68,13 +69,14 @@ export default function C05Gap() {
                 <p className="lede">A wrong guess can cost more than a question.</p>
               </Block>
               <Block p={p} a={0.8} b={1} last>
-                <h2 className="display d-lg">No system we found answers <em>all four.</em></h2>
-                <p className="lede"><Tag>As far as our search went</Tag></p>
+                <h2 className="display d-lg">No usual answer settles <em>all four.</em></h2>
+                <p className="lede">The three we just saw each miss most of them.</p>
               </Block>
             </div>
             <div className="vis"><Scene p={p} /></div>
           </div>
-        )}
+          )
+        }}
       </Pinned>
     </div>
   )
