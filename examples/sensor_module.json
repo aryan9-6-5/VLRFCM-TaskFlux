@@ -1,0 +1,202 @@
+{
+ "name": "sensor_module",
+ "notes": "Second process, authored by the code's author. Reversibility and damage values are NOT independent evidence until someone else has annotated the blinded sheet (taskflux.spec.annotation_sheet).",
+ "scrap_cost": 120,
+ "cell": {
+  "tools": [
+   "gripper",
+   "soldering_iron",
+   "dispenser",
+   "sprayer"
+  ]
+ },
+ "steps": [
+  {
+   "id": "pcb",
+   "label": "seat PCB on carrier",
+   "forward": 12,
+   "undo": 10,
+   "requires": [],
+   "covered_by": []
+  },
+  {
+   "id": "header_a",
+   "label": "solder 8-pin header",
+   "forward": 25,
+   "undo": 40,
+   "undo_damage": 0.15,
+   "requires": [
+    "pcb"
+   ],
+   "tool": "soldering_iron"
+  },
+  {
+   "id": "header_b",
+   "label": "solder 12-pin header",
+   "forward": 30,
+   "undo": 45,
+   "undo_damage": 0.15,
+   "requires": [
+    "pcb"
+   ],
+   "covered_by": [
+    "shield_can"
+   ],
+   "tool": "soldering_iron"
+  },
+  {
+   "id": "sensor",
+   "label": "mount sensor die",
+   "forward": 20,
+   "undo": 35,
+   "undo_damage": 0.1,
+   "requires": [
+    "pcb"
+   ],
+   "covered_by": [
+    "shield_can"
+   ]
+  },
+  {
+   "id": "shield_can",
+   "label": "solder shield can",
+   "forward": 28,
+   "undo": 45,
+   "undo_damage": 0.2,
+   "requires": [
+    "sensor"
+   ],
+   "tool": "soldering_iron"
+  },
+  {
+   "id": "calibrate",
+   "label": "calibrate sensor",
+   "forward": 30,
+   "undo": 2,
+   "requires": [
+    "shield_can"
+   ]
+  },
+  {
+   "id": "gasket",
+   "label": "fit gasket",
+   "forward": 8,
+   "undo": 6,
+   "requires": [
+    "pcb"
+   ],
+   "covered_by": [
+    "lid_a"
+   ]
+  },
+  {
+   "id": "lid_a",
+   "label": "snap lid A",
+   "forward": 10,
+   "undo": 12,
+   "undo_damage": 0.05,
+   "requires": [
+    "shield_can",
+    "header_a",
+    "gasket"
+   ]
+  },
+  {
+   "id": "potting_a",
+   "label": "pot with resin",
+   "forward": 35,
+   "irreversible": true,
+   "irreversible_reason": "the resin has cured",
+   "requires": [
+    "lid_a"
+   ],
+   "tool": "dispenser"
+  },
+  {
+   "id": "test_a",
+   "label": "function-test module A",
+   "forward": 20,
+   "undo": 2,
+   "requires": [
+    "potting_a",
+    "calibrate"
+   ]
+  },
+  {
+   "id": "coating_b",
+   "label": "spray conformal coating",
+   "forward": 22,
+   "irreversible": true,
+   "irreversible_reason": "the coating has cured",
+   "requires": [
+    "header_b",
+    "shield_can"
+   ],
+   "tool": "sprayer"
+  },
+  {
+   "id": "lid_b",
+   "label": "snap lid B",
+   "forward": 10,
+   "undo": 12,
+   "undo_damage": 0.05,
+   "requires": [
+    "coating_b"
+   ]
+  },
+  {
+   "id": "test_b",
+   "label": "function-test module B",
+   "forward": 20,
+   "undo": 2,
+   "requires": [
+    "lid_b",
+    "calibrate"
+   ]
+  },
+  {
+   "id": "lot_label",
+   "label": "print lot label",
+   "forward": 6,
+   "undo": 4,
+   "requires": [
+    "pcb"
+   ]
+  }
+ ],
+ "variants": [
+  {
+   "name": "A",
+   "required": [
+    "pcb",
+    "header_a",
+    "sensor",
+    "shield_can",
+    "calibrate",
+    "gasket",
+    "lid_a",
+    "potting_a",
+    "test_a"
+   ],
+   "tolerated": [
+    "lot_label"
+   ]
+  },
+  {
+   "name": "B",
+   "required": [
+    "pcb",
+    "header_b",
+    "sensor",
+    "shield_can",
+    "calibrate",
+    "coating_b",
+    "lid_b",
+    "test_b"
+   ],
+   "tolerated": [
+    "lot_label"
+   ]
+  }
+ ]
+}

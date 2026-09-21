@@ -47,8 +47,10 @@ def test_b3a_wrong_product_when_extra_steps_remain():
 def test_b3b_undoes_unnecessarily_and_fails_on_irreversible():
     _, ep = run("B3b", 6)
     assert ep.success and ep.unnecessary_undos >= 1
-    _, ep2 = run("B3b", 10)
-    assert ep2.outcome == "damaged"
+    _, ep2 = run("B3b", 10)                       # forces the cured adhesive off: the part is destroyed
+    _, tf2 = run("TF", 10)
+    assert ep2.destroyed and ep2.scrapped and ep2.success      # recovered by scrapping, at a price
+    assert ep2.total_time > tf2.total_time and not tf2.destroyed
 
 
 def test_taskflux_succeeds_with_minimal_undo():

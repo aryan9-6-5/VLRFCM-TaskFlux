@@ -21,7 +21,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from functools import cached_property
-from typing import Dict, FrozenSet, Iterable, List, Mapping, Optional, Sequence
+from typing import Dict, FrozenSet, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 INF = math.inf
 
@@ -38,6 +38,7 @@ class Step:
     covered_by: FrozenSet[str] = frozenset()
     tool: Optional[str] = None
     irreversible_reason: str = ""
+    pos: Optional[Tuple[float, float, float]] = None   # where the arm has to reach, metres (see geometry.py)
 
     def __post_init__(self) -> None:
         if self.irreversible and not math.isinf(self.undo_cost):
@@ -84,9 +85,38 @@ class Process:
         return v.required | v.tolerated
 
     # ---------- state checks ----------
-    def is_valid_state(self, done: Iterable[str]) -> bool:
+    def requires_closed(self, done: Iterable[str]) -> bool:
         s = set(done)
         return all(self.steps[x].requires <= s for x in s)
+
+    def cycle_core(self, subset: Iterable[str]) -> set:
+        """Steps caught in contradictory ordering constraints (requires plus cover edges); empty if a build order exists."""
+        nodes = set(subset)
+        succ: Dict[str, set] = {n: set() for n in nodes}
+        pred: Dict[str, set] = {n: set() for n in nodes}
+        for n in nodes:
+            st = self.steps[n]
+            for r in st.requires & nodes:
+                succ[r].add(n); pred[n].add(r)          # a required step comes first
+            for c in st.covered_by & nodes:
+                succ[n].add(c); pred[c].add(n)          # a covered step comes before its cover
+        alive = set(nodes)
+        changed = True
+        while changed:                                   # peel sources and sinks; what survives lies on or between cycles
+            changed = False
+            for n in list(alive):
+                if not (pred[n] & alive) or not (succ[n] & alive):
+                    alive.discard(n)
+                    changed = True
+        return alive
+
+    def realizable(self, done: Iterable[str]) -> bool:
+        return not self.cycle_core(done)
+
+    def is_valid_state(self, done: Iterable[str]) -> bool:
+        """A workpiece state is valid if every step has its prerequisites AND some valid build order produces it."""
+        s = set(done)
+        return self.requires_closed(s) and self.realizable(s)
 
     def ready(self, done: Iterable[str], step: str) -> bool:
         d = set(done)

@@ -14,7 +14,7 @@ def scene(title: str, k: int, say: str, answer: bool | None, clf: IntentClassifi
     done = set(p.topo_order(p.goal("A"))[:k])
     c = Controller(p, "A", "B", clf, GEARBOX_CELL, done=done)
     print(f"\n=== {title}")
-    print(f"    workpiece: {k} step(s) done: {', '.join(p.label(s) for s in p.topo_order(done)) or 'nothing'}")
+    print(f"    workpiece: {k} steps done: {', '.join(p.label(s) for s in p.topo_order(done)) or 'nothing'}")
     print(f"    operator : \"{say}\"")
     r = c.hear(say)
     print(f"    triage   : {r.action.value}   P(clar, edit, change, abort) = {r.probs.round(2).tolist()}")

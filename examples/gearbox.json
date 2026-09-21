@@ -1,0 +1,281 @@
+{
+ "name": "gearbox",
+ "scrap_cost": 150.0,
+ "cell": {
+  "tools": [
+   "dispenser",
+   "gripper",
+   "torque_driver"
+  ]
+ },
+ "steps": [
+  {
+   "id": "base",
+   "label": "place base plate",
+   "forward": 8,
+   "undo": 6,
+   "requires": [],
+   "covered_by": [],
+   "irreversible": false,
+   "irreversible_reason": "",
+   "undo_damage": 0.0,
+   "tool": null
+  },
+  {
+   "id": "sticker_a",
+   "label": "apply variant-A label",
+   "forward": 5,
+   "undo": 4,
+   "requires": [
+    "base"
+   ],
+   "covered_by": [],
+   "irreversible": false,
+   "irreversible_reason": "",
+   "undo_damage": 0.0,
+   "tool": null
+  },
+  {
+   "id": "bearing",
+   "label": "press bearing",
+   "forward": 18,
+   "undo": 30,
+   "requires": [
+    "base"
+   ],
+   "covered_by": [],
+   "irreversible": false,
+   "irreversible_reason": "",
+   "undo_damage": 0.08,
+   "tool": null
+  },
+  {
+   "id": "shaft",
+   "label": "insert shaft",
+   "forward": 12,
+   "undo": 14,
+   "requires": [
+    "bearing"
+   ],
+   "covered_by": [],
+   "irreversible": false,
+   "irreversible_reason": "",
+   "undo_damage": 0.0,
+   "tool": null
+  },
+  {
+   "id": "connector",
+   "label": "seat connector",
+   "forward": 15,
+   "undo": 28,
+   "requires": [
+    "base"
+   ],
+   "covered_by": [
+    "cover"
+   ],
+   "irreversible": false,
+   "irreversible_reason": "",
+   "undo_damage": 0.1,
+   "tool": null
+  },
+  {
+   "id": "cover",
+   "label": "fit cover plate",
+   "forward": 12,
+   "undo": 10,
+   "requires": [
+    "connector"
+   ],
+   "covered_by": [],
+   "irreversible": false,
+   "irreversible_reason": "",
+   "undo_damage": 0.0,
+   "tool": null
+  },
+  {
+   "id": "gasket",
+   "label": "fit foam gasket",
+   "forward": 9,
+   "undo": 8,
+   "requires": [
+    "base"
+   ],
+   "covered_by": [
+    "housing_a"
+   ],
+   "irreversible": false,
+   "irreversible_reason": "",
+   "undo_damage": 0.0,
+   "tool": null
+  },
+  {
+   "id": "housing_a",
+   "label": "seat A housing",
+   "forward": 20,
+   "undo": 22,
+   "requires": [
+    "base",
+    "gasket",
+    "shaft"
+   ],
+   "covered_by": [],
+   "irreversible": false,
+   "irreversible_reason": "",
+   "undo_damage": 0.0,
+   "tool": null
+  },
+  {
+   "id": "screws_a",
+   "label": "torque A housing screws",
+   "forward": 30,
+   "undo": 28,
+   "requires": [
+    "housing_a"
+   ],
+   "covered_by": [],
+   "irreversible": false,
+   "irreversible_reason": "",
+   "undo_damage": 0.0,
+   "tool": "torque_driver"
+  },
+  {
+   "id": "adhesive_a",
+   "label": "cure A seam adhesive",
+   "forward": 25,
+   "undo": null,
+   "requires": [
+    "screws_a"
+   ],
+   "covered_by": [],
+   "irreversible": true,
+   "irreversible_reason": "the adhesive bond has cured",
+   "undo_damage": 0.0,
+   "tool": "dispenser"
+  },
+  {
+   "id": "test_a",
+   "label": "leak-test A housing",
+   "forward": 15,
+   "undo": 3,
+   "requires": [
+    "adhesive_a"
+   ],
+   "covered_by": [],
+   "irreversible": false,
+   "irreversible_reason": "",
+   "undo_damage": 0.0,
+   "tool": null
+  },
+  {
+   "id": "housing_b",
+   "label": "seat B housing",
+   "forward": 22,
+   "undo": 24,
+   "requires": [
+    "base",
+    "shaft"
+   ],
+   "covered_by": [
+    "cover"
+   ],
+   "irreversible": false,
+   "irreversible_reason": "",
+   "undo_damage": 0.0,
+   "tool": null
+  },
+  {
+   "id": "screws_b",
+   "label": "torque B housing screws",
+   "forward": 34,
+   "undo": 30,
+   "requires": [
+    "housing_b"
+   ],
+   "covered_by": [],
+   "irreversible": false,
+   "irreversible_reason": "",
+   "undo_damage": 0.0,
+   "tool": "torque_driver"
+  },
+  {
+   "id": "adhesive_b",
+   "label": "cure B seam adhesive",
+   "forward": 25,
+   "undo": null,
+   "requires": [
+    "screws_b"
+   ],
+   "covered_by": [],
+   "irreversible": true,
+   "irreversible_reason": "the adhesive bond has cured",
+   "undo_damage": 0.0,
+   "tool": "dispenser"
+  },
+  {
+   "id": "test_b",
+   "label": "leak-test B housing",
+   "forward": 15,
+   "undo": 3,
+   "requires": [
+    "adhesive_b"
+   ],
+   "covered_by": [],
+   "irreversible": false,
+   "irreversible_reason": "",
+   "undo_damage": 0.0,
+   "tool": null
+  },
+  {
+   "id": "label_b",
+   "label": "apply variant-B label",
+   "forward": 5,
+   "undo": 4,
+   "requires": [
+    "base"
+   ],
+   "covered_by": [],
+   "irreversible": false,
+   "irreversible_reason": "",
+   "undo_damage": 0.0,
+   "tool": null
+  }
+ ],
+ "variants": [
+  {
+   "name": "A",
+   "required": [
+    "adhesive_a",
+    "base",
+    "bearing",
+    "connector",
+    "cover",
+    "gasket",
+    "housing_a",
+    "screws_a",
+    "shaft",
+    "sticker_a",
+    "test_a"
+   ],
+   "tolerated": []
+  },
+  {
+   "name": "B",
+   "required": [
+    "adhesive_b",
+    "base",
+    "bearing",
+    "connector",
+    "cover",
+    "housing_b",
+    "label_b",
+    "screws_b",
+    "shaft",
+    "test_b"
+   ],
+   "tolerated": [
+    "sticker_a"
+   ]
+  }
+ ]
+}

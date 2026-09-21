@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, FrozenSet, Iterable, List, Optional, Tuple
 
+from .geometry import Workcell
 from .process import INF, Process
 
 
@@ -38,11 +39,12 @@ class Status(str, Enum):
 class Cell:
     """What the workcell can currently do."""
     tools: FrozenSet[str] = frozenset()
+    workcell: Optional[Workcell] = None      # reach and human safety zones, if the cell has them
 
 
 @dataclass(frozen=True)
 class Blocker:
-    kind: str                      # "irreversible" | "tool"
+    kind: str                      # "irreversible" | "tool" | "reach" | "zone"
     step: str                      # the step that blocks
     chain: Tuple[str, ...] = ()    # forced root ... blocking step, in removal-dependency order
     root_reason: str = ""
@@ -109,7 +111,7 @@ def reconcile(process: Process, done: Iterable[str], target: str,
               cell: Optional[Cell] = None, allow_scrap: bool = True) -> Plan:
     C = frozenset(done)
     if not process.is_valid_state(C):
-        raise ValueError("completed set violates step prerequisites")
+        raise ValueError("completed set is impossible: a step lacks a prerequisite, or no build order can produce it")
     G = process.goal(target)
     U, roots, parent = undo_closure(process, C, target)
     K = C - U
@@ -138,11 +140,24 @@ def reconcile(process: Process, done: Iterable[str], target: str,
             tool = process.steps[s].tool
             if tool is not None and tool not in cell.tools:
                 blockers.append(Blocker("tool", s, (s,), tool))
+        wc = cell.workcell
+        if wc is not None:
+            for s in sorted(set(N) | set(U), key=process.index.__getitem__):   # building and undoing both need the arm there
+                pos = process.steps[s].pos
+                if pos is None:
+                    continue
+                zone = wc.zone_of(pos)
+                if zone is not None:
+                    blockers.append(Blocker("zone", s, (s,), zone.name))
+                elif not wc.reachable(pos):
+                    blockers.append(Blocker("reach", s, (s,), ""))
 
+    # If an undo damages the part it is scrapped and the target rebuilt from nothing, which replaces
+    # the planned forward work with the full build: a damage event costs the scrap fee plus the difference.
     salvage_cost = INF if any(b.kind == "irreversible" for b in blockers) else (
-        undo_time + damage * process.scrap_cost + forward_time)
+        undo_time + forward_time + damage * (process.scrap_cost + forward_all - forward_time))
 
-    if any(b.kind == "tool" for b in blockers):
+    if any(b.kind in ("tool", "zone", "reach") for b in blockers):
         status = Status.REFUSE
     elif any(b.kind == "irreversible" for b in blockers):
         status = Status.ESCALATE if allow_scrap else Status.REFUSE
@@ -157,11 +172,24 @@ def reconcile(process: Process, done: Iterable[str], target: str,
     return plan
 
 
+def _steps(n: int) -> str:
+    return f"{n} step" if n == 1 else f"{n} steps"
+
+
 def explain(process: Process, plan: Plan, roots: Dict[str, Tuple[str, Optional[str]]], done_count: int) -> str:
     L = process.label
     tgt = plan.target
     tool_b = [b for b in plan.blockers if b.kind == "tool"]
     irr_b = [b for b in plan.blockers if b.kind == "irreversible"]
+    zone_b = [b for b in plan.blockers if b.kind == "zone"]
+    reach_b = [b for b in plan.blockers if b.kind == "reach"]
+    if zone_b:
+        b = zone_b[0]
+        return (f"I cannot switch to {tgt}: '{L(b.step)}' is inside the human safety zone '{b.root_reason}'. "
+                f"Please clear the zone or move the part.")
+    if reach_b:
+        b = reach_b[0]
+        return f"I cannot switch to {tgt}: '{L(b.step)}' is outside the arm's reach from where it is mounted."
     if tool_b:
         b = tool_b[0]
         return (f"I cannot build {tgt}: the step '{L(b.step)}' needs {b.root_reason}, "
@@ -185,11 +213,11 @@ def explain(process: Process, plan: Plan, roots: Dict[str, Tuple[str, Optional[s
                 f"(about {plan.damage_prob:.0%}). Restarting from a fresh workpiece is cheaper in expectation "
                 f"({plan.scrap_total:.0f} s versus {plan.salvage_cost:.0f} s). Please confirm.")
     if not plan.undo:
-        extra = f" and leaving {len(plan.discard)} harmless extra step(s) in place" if plan.discard else ""
-        return (f"Switching to {tgt}: keeping {len(plan.keep)} completed step(s){extra}; nothing to undo, "
-                f"{len(plan.forward)} step(s) remain.")
-    return (f"Switching to {tgt}: keeping {len(plan.keep)} step(s), undoing {len(plan.undo)} "
-            f"({', '.join(L(s) for s in plan.undo)}), then {len(plan.forward)} step(s) to go.")
+        extra = f" and leaving {_steps(len(plan.discard))} in place because they are harmless" if plan.discard else ""
+        return (f"Switching to {tgt}: keeping {_steps(len(plan.keep))}{extra}. Nothing has to come off, "
+                f"and {_steps(len(plan.forward))} remain.")
+    return (f"Switching to {tgt}: keeping {_steps(len(plan.keep))}, taking off {_steps(len(plan.undo))} "
+            f"({', '.join(L(s) for s in plan.undo)}), then building {_steps(len(plan.forward))}.")
 
 
 def cost_to_go(process: Process, done: Iterable[str], target: str, cell: Optional[Cell] = None) -> float:

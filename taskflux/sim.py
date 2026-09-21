@@ -29,6 +29,7 @@ import time
 from dataclasses import dataclass, field
 from typing import FrozenSet, List, Optional, Sequence, Tuple
 
+from .ablation import ablated_plan
 from .hedge import hedge_window
 from .process import Process
 from .reconcile import Cell, Status, reconcile, undo_closure
@@ -61,17 +62,22 @@ class Episode:
     t_policy: float = 0.0
     al: Optional[float] = None     # start of first adaptation action
     ttp: Optional[float] = None    # start of first build step
-    undone: List[str] = field(default_factory=list)
+    undone: List[str] = field(default_factory=list)     # steps removed one by one by a deliberate undo
+    lost: List[str] = field(default_factory=list)       # steps lost when the workpiece was scrapped (planned or not)
     completed_before: int = 0
     unnecessary_undos: int = 0
     scrapped: bool = False
     hedged_steps: int = 0
     escalated: bool = False
-    stage: str = ""                # truncation | undo | irreversible (post-hoc label)
+    stage: str = ""                # truncation | undo | risky | irreversible (post-hoc label)
+    failed_at: str = ""            # step id where the episode failed, if it did
+    destroyed: bool = False        # a part was damaged by an undo and had to be scrapped (unplanned loss)
+    damaged_at: str = ""           # step whose undo damaged the part
 
     @property
     def undo_actions(self) -> int:
-        return len(self.undone)
+        """Completed work that had to be redone: individual undos plus everything lost to a scrap."""
+        return len(self.undone) + len(self.lost)
 
     @property
     def rework_cost(self) -> float:
@@ -102,26 +108,45 @@ def _do_forward(process: Process, s: str, rng: random.Random, prm: SimParams, no
 def _do_undo(process: Process, s: str, rng: random.Random, prm: SimParams) -> Tuple[str, float]:
     st = process.steps[s]
     if st.irreversible:
-        return "damaged", 0.0            # forcing an irreversible removal destroys the part
+        return "damaged", st.forward_cost   # forcing an irreversible removal takes about as long as the step did, and destroys the part
     t = st.undo_cost * (2.0 if rng.random() < prm.p_undo_retry else 1.0)
     return ("damaged" if rng.random() < st.undo_damage * prm.damage_scale else "ok"), t
 
 
-def _run(process, state, undo, forward, rng, prm, novel, t, ep, physics=False) -> Tuple[str, float]:
-    """Execute undos then forwards from time ``t``. Returns (status, time)."""
+def _recover(process, state, target, rng, prm, novel, t, ep) -> Tuple[str, float]:
+    """A part damaged during an undo is scrapped and the target is built again from nothing."""
+    ep.destroyed = ep.scrapped = True
+    ep.lost.extend(sorted(x for x in state if x not in ep.lost))          # all completed work is lost
+    state.clear()
+    return _run(process, state, [], process.topo_order(process.goal(target)), rng, prm, novel,
+                t + process.scrap_cost, ep)
+
+
+def _run(process, state, undo, forward, rng, prm, novel, t, ep, physics=False,
+         recover_to: Optional[str] = None) -> Tuple[str, float]:
+    """Execute undos then forwards from time ``t``. Returns (status, time).
+
+    With ``recover_to`` set, a damaged part is scrapped and that variant rebuilt instead of the episode ending.
+    """
     for s in undo:
         if physics and (process.dependents[s] & state):
+            ep.failed_at = s
             return "collision", t
         if ep.al is None:
             ep.al = t
         res, dt = _do_undo(process, s, rng, prm)
         t += dt
         if res != "ok":
+            ep.damaged_at = s
+            if recover_to is not None:
+                return _recover(process, state, recover_to, rng, prm, novel, t, ep)
+            ep.failed_at = s
             return "damaged", t
         state.discard(s)
         ep.undone.append(s)
     for s in forward:
         if physics and not process.ready(state, s):
+            ep.failed_at = s
             return "collision", t
         if ep.al is None:
             ep.al = t
@@ -130,6 +155,7 @@ def _run(process, state, undo, forward, rng, prm, novel, t, ep, physics=False) -
         ok, dt = _do_forward(process, s, rng, prm, novel)
         t += dt
         if not ok:
+            ep.failed_at = s
             return "exec_failure", t
         state.add(s)
     return "ok", t
@@ -170,7 +196,7 @@ def run_episode(process: Process, system: str, done: Sequence[str], current: str
             ep.scrapped = True
             ep.al = t
             t += process.scrap_cost
-            ep.undone = list(C)                     # every completed step is lost
+            ep.lost = list(C)                       # every completed step is lost
             state = set()
         else:
             for s in process.undo_order(C):
@@ -179,7 +205,11 @@ def run_episode(process: Process, system: str, done: Sequence[str], current: str
                 res, dt = _do_undo(process, s, rng, prm)
                 t += dt
                 if res != "ok":
-                    ep.outcome, ep.total_time = "damaged", t
+                    ep.damaged_at = s
+                    st, t = _recover(process, state, target, rng, prm, novel, t, ep)
+                    ep.outcome = "ok" if (st == "ok" and _matches(process, state, target)) else st
+                    ep.success, ep.total_time = ep.outcome == "ok", t
+                    _score_unnecessary(process, C, target, ep)
                     return ep
                 state.discard(s)
                 ep.undone.append(s)
@@ -208,15 +238,16 @@ def run_episode(process: Process, system: str, done: Sequence[str], current: str
         keep = set(seqA[:k])
         t = t0 + ep.t_policy
         st, t = _run(process, state, list(reversed(seqA[k:])), [s for s in seqB if s not in keep],
-                     rng, prm, novel, t, ep)
+                     rng, prm, novel, t, ep, recover_to=target)
         _score_unnecessary(process, C, target, ep)
         ep.outcome = st if st != "ok" else ("ok" if _matches(process, state, target) else "wrong_product")
         ep.success, ep.total_time = ep.outcome == "ok", t
         return ep
 
     # ---- TaskFlux ----
+    ablation = system.split(":", 1)[1] if system.startswith("TF:") else "full"
     tic = time.perf_counter()
-    plan = reconcile(process, C, target, cell)
+    plan = ablated_plan(process, C, target, ablation, cell)
     ep.t_reconcile = time.perf_counter() - tic
     t = t0 + ep.t_reconcile
 
@@ -229,7 +260,7 @@ def run_episode(process: Process, system: str, done: Sequence[str], current: str
         ep.scrapped = True
         ep.al = t                                   # operator approves; assumed yes for measurement
         t += process.scrap_cost + ep.t_policy
-        ep.undone = list(C)
+        ep.lost = list(C)
         st, t = _run(process, set(), [], process.topo_order(G), rng, prm, novel, t, ep)
         ep.outcome = "scrapped_ok" if st == "ok" else st
         ep.success = ep.outcome == "scrapped_ok"
@@ -252,9 +283,10 @@ def run_episode(process: Process, system: str, done: Sequence[str], current: str
                 return ep
             state.add(s)
         t = max(t, window_end)
-        plan = reconcile(process, state, target, cell)          # re-plan from the hedged state
+        plan = ablated_plan(process, state, target, ablation, cell)   # re-plan from the hedged state
     t += ep.t_policy
-    st, t = _run(process, state, plan.undo, plan.forward, rng, prm, novel, t, ep)
+    # physics=True: a plan is only worth what it does to the real workpiece, so an unsound plan collides
+    st, t = _run(process, state, plan.undo, plan.forward, rng, prm, novel, t, ep, physics=True, recover_to=target)
     ep.outcome = st if st != "ok" else ("ok" if _matches(process, state, target) else "wrong_product")
     ep.success, ep.total_time = ep.outcome == "ok", t
     _score_unnecessary(process, C, target, ep)
@@ -308,7 +340,13 @@ def false_change_episode(process: Process, done: Sequence[str], current: str, ta
             if kind == "undo":
                 res, dt = _do_undo(process, s, rng, prm)
                 if res != "ok":
-                    ep.outcome, ep.total_time = "damaged", t + budget_used + dt
+                    ep.damaged_at = s
+                    ep.destroyed = ep.scrapped = True
+                    state = set()
+                    t += budget_used + dt + process.scrap_cost
+                    back = reconcile(process, state, current, cell)
+                    st, t = _run(process, state, back.undo, back.forward, rng, prm, False, t, ep)
+                    ep.outcome, ep.success, ep.total_time = st, st == "ok", t
                     return ep
                 state.discard(s)
             else:

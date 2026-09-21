@@ -4,6 +4,7 @@ A ready step ``s`` of the *current* plan is **safe** with respect to a
 hypothesised target ``T`` when all of these hold:
 
     reconcile(done, T) is a salvage plan (not a scrap or a refusal)
+    undoing U*(done, T) cannot damage the part (otherwise a scrap would waste s)
     s is required by T (not merely tolerated)
     U*(done + s, T) == U*(done, T)     the undo set under T does not grow
     s not in U*(done + s, T)           s is not itself thrown away under T
@@ -28,7 +29,12 @@ def safe_steps(process: Process, done: Iterable[str], current: str, hypothesis: 
     C = frozenset(done)
     # If the hypothesis would end in a scrap or refusal, work done now is wasted
     # under that hypothesis, so nothing is zero-regret.
-    if reconcile(process, C, hypothesis).status != Status.PROCEED:
+    plan = reconcile(process, C, hypothesis)
+    if plan.status != Status.PROCEED:
+        return []
+    if plan.damage_prob > 0:
+        # If an undo can damage the part, the part is scrapped and rebuilt from nothing, and a step
+        # built in the meantime is lost with it: expected regret d * forward_cost(s), not zero.
         return []
     G_hyp = process.goal(hypothesis)
     pending = process.goal(current) - C

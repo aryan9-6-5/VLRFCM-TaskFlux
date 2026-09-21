@@ -1,0 +1,7 @@
+# Exact versions the results in docs/06 were produced with (Python 3.12.7, Windows 11).
+numpy==1.26.4
+scipy==1.13.1
+pandas==2.2.3
+matplotlib==3.9.0
+scikit-learn==1.5.2
+pytest==8.4.2

@@ -44,7 +44,7 @@ Honest strength assessment: moderate. Each algorithm is elementary. A workshop o
 
 A process has a step universe `S`. Each step `s` has `requires(s) ⊆ S` (must be present first; acyclic) and `covered_by(s) ⊆ S` (once present, blocks access to `s`: `s` can be done or undone only while these are absent). Removing `s` first requires removing its **undo-dependents** `D(s) = {u : s ∈ requires(u)} ∪ covered_by(s)`. Each step has a forward cost, an undo cost, an undo damage probability, and an irreversibility flag (undo cost infinite).
 
-A variant `T` has required steps `G` (closed under `requires`) and tolerated extras `H` (harmless to leave). A state `C` is the set of completed steps, closed under `requires`.
+A variant `T` has required steps `G` (closed under `requires`) and tolerated extras `H` (harmless to leave). A state `C` is the set of completed steps. It is **valid** when it is closed under `requires` **and** some build order consistent with `requires` and the cover relation could have produced it. The second condition is not implied by the first: a set can have every prerequisite present and still be impossible because its ordering constraints contradict each other (found when the perception experiment produced such a set). Checking it is a free error detector for noisy observations.
 
 A changeover plan removes `U ⊆ C`, leaving `K = C \ U`, then builds `G \ K`. It is **valid** when:
 
@@ -71,17 +71,19 @@ Checked by exhaustive enumeration of every valid keep-set on 40 random small pro
 
 **Scope.** This is polynomial because assembly steps come with precedence and cover structure. It does not contradict Nebel and Koehler's hardness of conservative plan modification in general planning. Say so explicitly.
 
-**What remains a real decision.** Once `U*` is fixed, only salvage-versus-scrap is left: expected salvage cost (undo time plus damage risk times scrap cost plus forward work) against scrap cost plus full rebuild. Implemented in `taskflux/reconcile.py`.
+**What remains a real decision.** Once `U*` is fixed, only salvage-versus-scrap is left. Expected salvage cost is undo time plus forward work plus `d · (scrap cost + full build − planned forward work)`, where `d` is the probability that some undo damages the part (a damage event scraps the part and replaces the planned forward work with a full build). It is compared with scrap cost plus full rebuild. Implemented in `taskflux/reconcile.py`.
 
 ### 3.3 Lemma 2 (zero-regret hedging)
 
-A ready step `s` of the running plan is **safe** for hypothesis `T` when: the hypothesis plan is a salvage plan; `s` is required by `T`; `s` does not cover a step the running plan still needs first; and `U*(C ∪ {s}, T) = U*(C, T)` with `s ∉ U*`. Then the remaining cost falls by exactly `forward(s)` whether or not the operator wanted the change.
+A ready step `s` of the running plan is **safe** for hypothesis `T` when: the hypothesis plan is a salvage plan; **undoing `U*` cannot damage the part**; `s` is required by `T`; `s` does not cover a step the running plan still needs first; and `U*(C ∪ {s}, T) = U*(C, T)` with `s ∉ U*`. Then the remaining cost falls by exactly `forward(s)` whether or not the operator wanted the change.
 
-*Proof sketch.* Under `T`, `K*` gains `s` and the forward set loses `s`, so salvage cost drops by `forward(s)` while the scrap alternative is unchanged and the plan stays a salvage plan. Under the running variant, `s` is simply its next step. ∎
+*Proof sketch.* Under `T`, `K*` gains `s` and the forward set loses `s`. With no damage risk in `U*`, salvage cost drops by `forward(s)`, the scrap alternative is unchanged, and the plan stays a salvage plan. Under the running variant, `s` is simply its next step. ∎
 
-Verified: 60 random processes plus every prefix of the gearbox process (`tests/test_hedge.py`), and 2,125 states in experiment E3 with a worst case of exactly 0.00 s.
+**Correction to an earlier version of this lemma.** The earlier statement had no damage condition. It was true only under a cost model in which damage cost the scrap fee alone. Once a damage event is charged what it really costs (scrap, then a full rebuild, which discards the hedged step too), a hedged step has expected regret `d · forward(s)` in the changeover world, where `d` is the damage probability of `U*`. So the condition above is needed, and zero regret holds only for damage-free undo sets. Cost: hedging is available in 44% of states instead of 73% on the synthetic set.
 
-Bug the test suite caught while writing this: the first definition ignored that a step can be physically ready yet cover something the running plan still needs first. That version was not zero-regret.
+Verified: 60 random processes plus every prefix of the gearbox (`tests/test_hedge.py`), and 2,106 synthetic states plus the gearbox in experiment E3, with a worst case of exactly 0.00 s.
+
+Bugs the test suite caught: the first definition ignored that a step can be ready yet cover something the running plan needs first; and the damage condition above.
 
 ### 3.4 Proposition 3 (cost-coupled triage)
 
@@ -95,14 +97,15 @@ This is a standard decision rule. The contribution is where the costs come from,
 * The utterances are authored by us. Classifier accuracy (88.8% on held-out templates) says nothing about shop-floor speech.
 * Reversibility, undo damage and costs are hand-set. Results depend on them.
 * Undo success is assumed, not measured. On a real cell undo may be the binding constraint.
+* Perception errors were independent per step in the noise experiment; the geometry layer is a stub.
 
 ## 5. More ideas, ranked
 
 Not implemented. Ordered by expected value for a paper.
 
 1. **Validate on a simulated manipulation benchmark with a fine-tuned VLA** so undo and forward success come from a policy instead of assumed probabilities. Turns a planning-layer paper into a system paper. Check which simulator setups the OpenVLA repository supports before committing.
-2. **Perception uncertainty.** The verifier that says a step is done will be wrong sometimes. Precedence gives free error detection: a step seen done while its prerequisite is seen missing is inconsistent and should trigger re-inspection. Add an "inspect before destructive undo" action to the triage rule.
-3. **Learn reversibility instead of hand-authoring it** from work instructions or process documents with an LLM, and report agreement with an expert annotation. Removes the largest stated limitation.
+2. **Perception uncertainty. Done in simulation (Phase 0), see `docs/06` E8.** The verifier will be wrong sometimes. Precedence and build-order checks give free error detection (47 to 89% of erroneous observations noticed, no false alarms). The idea of inspecting before a destructive undo **did not help**: the harmful errors are steps wrongly believed done and steps wrongly missed, neither of which is in the undo list. Inspecting only the steps whose status would change the plan (value of information) reached 98.8% success at 5% error with about half the inspections of inspecting everything. Errors were modelled as independent per step; correlated errors (occlusion) are the obvious next test, and a real verifier is needed to know the real error rate.
+3. **Learn reversibility instead of hand-authoring it** (not started; the annotation workflow in `taskflux/spec.py` is the first step, because it produces the ground truth to compare against) from work instructions or process documents with an LLM, and report agreement with an expert annotation. Removes the largest stated limitation.
 4. **Compose with SwitchVLA-style execution**: use its policy-level switching for smooth motion and TaskFlux for the structural decision. A natural "we complement, not replace" section.
 5. **Conformal calibration of the intent probabilities** (KnowNo-style) so the act/ask decision carries a coverage guarantee.
 6. **Repeated changes**: what if the operator changes again mid-changeover? Test that reconciliation composes (`reconcile` from a state that is itself a partial changeover) and bound the extra rework.
@@ -111,6 +114,6 @@ Not implemented. Ordered by expected value for a paper.
 ## 6. What would raise this from workshop to full paper
 
 * Idea 1 above, with a real policy in the loop.
-* Idea 2, because state estimation is where a deployed system would actually fail.
-* A second real process (not the gearbox and not random) with reversibility annotated by someone who did not write the code.
+* Idea 2 with a real verifier, because state estimation is where a deployed system would actually fail. The simulated version is done and shows how much it matters.
+* Independent annotation of the second process (`examples/sensor_module.json`). The process exists; the independent annotation does not.
 * Recorded operator phrasings for the classifier, even 100 of them.

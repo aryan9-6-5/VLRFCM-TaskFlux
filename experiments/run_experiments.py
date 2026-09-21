@@ -27,6 +27,7 @@ from taskflux.sim import (SYSTEMS, SimParams, delayed_change_episode, false_chan
                           run_episode)
 from taskflux.synth import SynthConfig, random_process
 from taskflux.triage import ABORT, CHANGE, Action, TriageParams, build_context, decide, fixed_threshold
+from experiments import provenance
 from taskflux.utterances import INTENTS, IntentClassifier, ece, lexical_stop, make_split
 
 OUT = Path(__file__).parent / "results"
@@ -75,11 +76,12 @@ def e1_changeover(n_gearbox: int, n_procs: int, eps_per: int):
 def _row(ep):
     return dict(stage=ep.stage, success=ep.success, outcome=ep.outcome, total_time=ep.total_time,
                 al=ep.al, ttp=ep.ttp, undo=ep.undo_actions, done=ep.completed_before, rc=ep.rework_cost,
-                unnecessary=ep.unnecessary_undos, scrapped=ep.scrapped, escalated=ep.escalated,
+                unnecessary=ep.unnecessary_undos, scrapped=ep.scrapped, escalated=ep.escalated, destroyed=ep.destroyed, damaged_at=ep.damaged_at,
                 t_reconcile=ep.t_reconcile)
 
 
-def summarise_e1(df: pd.DataFrame, source: str) -> str:
+def summarise_e1(df: pd.DataFrame, source: str, systems=None) -> str:
+    systems = systems or SYSTEMS
     d = df[df.source == source]
     out = []
     for stage in ["truncation", "undo", "risky", "irreversible"]:
@@ -87,13 +89,13 @@ def summarise_e1(df: pd.DataFrame, source: str) -> str:
         if s.empty:
             continue
         rows = []
-        for sysname in SYSTEMS:
+        for sysname in systems:
             g = s[s.system == sysname]
             n = len(g)
             ok = int(g.success.sum())
             lo, hi = wilson(ok, n)
             succ = g[g.success]
-            destroyed = int((g.outcome == "damaged").sum())
+            destroyed = int(g.destroyed.sum())
             rows.append({
                 "system": LABEL[sysname],
                 "n": n,
@@ -106,7 +108,7 @@ def summarise_e1(df: pd.DataFrame, source: str) -> str:
                 "TTP s": "-" if g.ttp.isna().all() else f"{g.ttp.mean():.1f}",
                 "time s (successes)": "-" if succ.empty else f"{succ.total_time.mean():.0f}",
             })
-        out.append(f"**{source}, stage = {stage}** ({len(s) // len(SYSTEMS)} episodes per system)\n\n" + md_table(pd.DataFrame(rows)))
+        out.append(f"**{source}, stage = {stage}** ({len(s) // len(systems)} episodes per system)\n\n" + md_table(pd.DataFrame(rows)))
     return "\n\n".join(out)
 
 
@@ -180,7 +182,7 @@ def e2_triage(n_utt: int, n_procs: int, seed: int = 7):
     rng = random.Random(seed)
     procs = [("gearbox", gearbox(), GEARBOX_CELL)] + [("synthetic", random_process(rng), None) for _ in range(n_procs)]
     by_class = {c: np.where(y == c)[0] for c in range(4)}
-    policies = ["oracle", "TaskFlux", "TaskFlux (no hedge)", "fixed 0.5", "fixed 0.3", "always ask (idle)",
+    policies = ["oracle", "TaskFlux", "TaskFlux (no hedge)", "TaskFlux (no stop override)", "fixed 0.5", "fixed 0.3", "always ask (idle)",
                 "always ask (hedge)", "never act"]
     rows = []
     for src, p, cell in procs:
@@ -199,6 +201,7 @@ def e2_triage(n_utt: int, n_procs: int, seed: int = 7):
                                1: Action.CONTINUE, ABORT: Action.HALT}[truth],
                     "TaskFlux": decide(pr, ctx_h, TriageParams(hedge=True)),
                     "TaskFlux (no hedge)": decide(pr, ctx_n, TriageParams(hedge=False)),
+                    "TaskFlux (no stop override)": decide(Pc[i], ctx_h, TriageParams(hedge=True)),
                     "fixed 0.5": fixed_threshold(pr, 0.5),
                     "fixed 0.3": fixed_threshold(pr, 0.3),
                     "always ask (idle)": Action.HALT if pr[ABORT] >= halt_thr else Action.ASK,
@@ -207,7 +210,7 @@ def e2_triage(n_utt: int, n_procs: int, seed: int = 7):
                 }
                 for pol in policies:
                     a = acts[pol]
-                    hedges = pol in ("TaskFlux", "always ask (hedge)", "oracle")
+                    hedges = pol in ("TaskFlux", "TaskFlux (no stop override)", "always ask (hedge)", "oracle")
                     c = ctx_h if hedges else ctx_n
                     if a == Action.ACT and not c.act_allowed:
                         a = Action.ASK              # an irreversible plan is never executed blindly
@@ -323,7 +326,7 @@ def e5_sensitivity(n_procs: int):
                 for sysname in ["B2", "B3b", "TF"]:
                     ep = run_episode(q, sysname, C, "A", "B", random.Random(f"e5-{p_irr}-{pi}-{k}-{sysname}"), PRM)
                     rows.append(dict(p_irr=p_irr, system=sysname, success=ep.success, time=ep.total_time,
-                                     scrapped=ep.scrapped, destroyed=ep.outcome == "damaged"))
+                                     scrapped=ep.scrapped, destroyed=ep.destroyed))
     d = pd.DataFrame(rows)
     out = []
     for p_irr in sorted(d.p_irr.unique()):
@@ -345,7 +348,8 @@ def main():
               "Step-level simulation. Every number depends on the assumed parameters in `taskflux/sim.py` and is not a "
               "measurement of a physical robot or of OpenVLA. Success intervals are 95% Wilson. "
               "`CSR` counts a scrap-and-restart that ends in the right product as a success; `scrapped` and `destroyed` "
-              "are reported next to it so that cost stays visible.\n"]
+              "are reported next to it so that cost stays visible.\n",
+              f"Produced by: {provenance.report()}\n"]
 
     print("E1 changeover systems ..."); df1 = e1_changeover(20 if q else 300, 15 if q else 400, 1 if q else 3)
     df1.to_csv(OUT / "e1_changeover.csv", index=False)
@@ -368,6 +372,35 @@ def main():
     print("E5 sensitivity ..."); d5, t5 = e5_sensitivity(8 if q else 150)
     d5.to_csv(OUT / "e5_sensitivity.csv", index=False)
     report += ["## E5. Sensitivity to the irreversible-step rate\n", t5, ""]
+
+    from experiments import phase0
+    print("E1b second process ..."); dfb = phase0.run_systems(SYSTEMS, 20 if q else 300, 0, 0, names=["sensor_module"])
+    report += ["## E1b. The same comparison on a second process (sensor module, examples/sensor_module.json)\n",
+               summarise_e1(dfb, "sensor_module"), ""]
+
+    print("E6 ablations ..."); dfa = phase0.run_systems(phase0.ABL_SYSTEMS, 20 if q else 200, 15 if q else 150, 1)
+    report += ["## E6. What each rule of the reconciler is worth (ablations)\n",
+               "Each row removes one rule. `no_refusal` attempts irreversible removals, `no_scrap_choice` never trades "
+               "salvage against scrap on damage risk, `no_cascade` undoes only the forced roots, `no_cover_rule` ignores "
+               "that a present cover blocks a step still to be built, `no_tolerated` removes harmless extras.\n",
+               phase0.summarise_ablation(dfa, "gearbox"), "", phase0.summarise_ablation(dfa, "sensor_module"), "",
+               phase0.summarise_ablation(dfa, "synthetic"), ""]
+
+    print("E7 failure analysis ...")
+    dfall = pd.concat([df1.assign(failed_at=""), dfb, dfa[dfa.system == "TF"]], ignore_index=True)
+    report += ["## E7. Failure analysis\n", phase0.failure_analysis(dfall), ""]
+
+    print("E8 perception noise ..."); dfp = phase0.e8_perception(15 if q else 60, 20 if q else 100)
+    dfp.to_csv(OUT / "e8_perception.csv", index=False)
+    phase0.fig_e8(dfp, OUT / "e8_perception.png")
+    report += ["## E8. Perception noise: acting on a state the verifier may have got wrong\n",
+               "Each step of the true state is independently misread with the stated error rate (a finished step seen as "
+               "missing, and an unfinished one seen as done, both at that rate). Inspections are exact and cost 6 s each. "
+               "Times are for successful episodes only, because failed episodes stop early and would look fast.\n",
+               phase0.summarise_e8(dfp), "",
+               "**Expected time to a correct product when a failed changeover costs 450 s extra** (an assumption: the "
+               "operator steps in, the workpiece is scrapped and rebuilt). Seconds, lower is better.\n",
+               phase0.summarise_e8_expected(dfp), "", "![perception](e8_perception.png)\n"]
 
     (OUT / "results.md").write_text("\n".join(report), encoding="utf-8")
     print(f"done in {time.time() - t0:.0f}s -> {OUT / 'results.md'}")

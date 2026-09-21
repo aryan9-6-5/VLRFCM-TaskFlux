@@ -1,7 +1,8 @@
+# Loose requirements. For the exact versions used in the reported results see requirements.lock.txt
 numpy
 scipy
 pandas
 matplotlib
 scikit-learn
 pytest
-torch  # only for experiments/retention_toy.py
+# torch is only needed for experiments/retention_toy.py (requirements-toy.txt)
